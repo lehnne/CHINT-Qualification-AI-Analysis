@@ -13,7 +13,7 @@
 | `qualification-ai-analysis.html` | 完整设计文档（11 章节，含架构设计、Prompt 设计、MCP 工具设计、数据库设计、接口规范等） |
 | `任职资格平台查询SQL手册.md` | 任职资格平台查询 SQL 手册（SQL Server T-SQL 语法） |
 | `智能体Prompt-标签生成Agent.md` | 能力标签生成 Agent 的完整提示词 |
-| `项目交接文档.md` | 项目交接文档 |
+| `当前项目进度.md` | 项目进度、个人习惯、踩坑记录、设计决策 |
 
 ## 技术栈
 
