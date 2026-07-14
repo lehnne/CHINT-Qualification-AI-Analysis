@@ -2063,15 +2063,15 @@ ORDER BY sort_order;</pre>
 
     <h4>E1. 写入个人能力标签</h4>
     <pre><span class="tag">sql</span>INSERT INTO employee_capability_tags (
-    employee_id, employee_name, position_family, original_position,
-    target_grade, assessment_cycle, dimension, tag_name,
-    score, confidence, evidence, source_materials, batch_id,
-    created_at, updated_at
+    employee_id, employee_name, position_family_code, position_family_name,
+    original_position, original_grade, target_grade, assessment_cycle,
+    dimension, tag_name, score, confidence, evidence, source_materials,
+    batch_id, created_at, updated_at
 ) VALUES (
-    :employee_id, :employee_name, :position_family, :original_position,
-    :target_grade, :assessment_cycle, :dimension, :tag_name,
-    :score, :confidence, :evidence, :source_materials::jsonb, :batch_id,
-    NOW(), NOW()
+    :employee_id, :employee_name, :position_family_code, :position_family_name,
+    :original_position, :original_grade, :target_grade, :assessment_cycle,
+    :dimension, :tag_name, :score, :confidence, :evidence, :source_materials::jsonb,
+    :batch_id, NOW(), NOW()
 )
 ON CONFLICT (employee_id, assessment_cycle, dimension, tag_name) 
 DO UPDATE SET
@@ -2079,6 +2079,8 @@ DO UPDATE SET
     confidence = EXCLUDED.confidence,
     evidence = EXCLUDED.evidence,
     source_materials = EXCLUDED.source_materials,
+    original_grade = EXCLUDED.original_grade,
+    target_grade = EXCLUDED.target_grade,
     batch_id = EXCLUDED.batch_id,
     updated_at = NOW();</pre>
 
