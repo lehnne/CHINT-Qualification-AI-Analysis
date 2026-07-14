@@ -52,6 +52,98 @@ skill                   — 专业能力（仅关键成果表有）
 → 如果返回行数 = page_size，继续翻页（start 递增 page_size）直到返回行数 < page_size
 ```
 
+### 2. 写入能力标签
+
+**工具名**：`write_employee_tags`
+
+**功能**：将分析生成的个人能力标签写入 AI 分析系统数据库。
+
+**调用方式**：POST
+
+**参数说明**：
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `batch_id` | string | 是 | 批次ID，如 `BATCH_20250714_0001` |
+| `assessment_cycle` | string | 是 | 评审周期，如 `2025-H1` |
+| `mode` | string | 是 | 写入模式：`initial`（首次全量）/ `incremental`（增量补充） |
+| `tags` | array | 是 | 标签数组，每个元素包含员工信息和标签数据 |
+
+**tags 数组中每个元素的结构**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `employee_id` | string | 是 | 员工工号 |
+| `employee_name` | string | 是 | 员工姓名 |
+| `position_family_code` | string | 是 | 岗位序列代码 |
+| `position_family_name` | string | 是 | 岗位序列名称 |
+| `original_position` | string | 是 | 原岗位名称 |
+| `original_grade` | string | 是 | 原职级 |
+| `target_grade` | string | 是 | 申报目标职级 |
+| `dimension_tags` | object | 是 | 维度标签对象，key=维度名称，value=标签数组 |
+
+**dimension_tags 中每个标签的结构**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `tag_name` | string | 是 | 标签名称 |
+| `score` | int | 是 | 得分 0-100 |
+| `confidence` | decimal | 否 | 置信度 0.00-1.00 |
+| `evidence` | string | 否 | 生成依据 |
+| `source_materials` | array | 否 | 支撑材料ID列表 |
+
+**完整请求体示例**：
+
+```json
+{
+  "batch_id": "BATCH_20250714_0001",
+  "assessment_cycle": "2025-H1",
+  "mode": "incremental",
+  "tags": [
+    {
+      "employee_id": "EMP_12345",
+      "employee_name": "张三",
+      "position_family_code": "DYJS15",
+      "position_family_name": "技术研发类",
+      "original_position": "后端开发工程师",
+      "original_grade": "P5",
+      "target_grade": "P6",
+      "dimension_tags": {
+        "技术专长": [
+          {
+            "tag_name": "复杂架构设计",
+            "score": 88,
+            "confidence": 0.92,
+            "evidence": "主导统一登录平台从单体到微服务架构升级，支撑日活10万+",
+            "source_materials": ["MAT_001"]
+          }
+        ]
+      }
+    }
+  ]
+}
+```
+
+**返回结果**：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "batch_id": "BATCH_20250714_0001",
+    "total_employees": 1,
+    "total_tags": 3,
+    "inserted": 3
+  }
+}
+```
+
+**写入策略说明**：
+- `initial` 模式：清空整个评审周期的所有旧标签，再全部写入（首次上线用）
+- `incremental` 模式：对每个人先删旧标签再插新标签，不影响其他人（日常增量用）
+- 重复调用同一个人是幂等的——第二次跑会先删掉第一次的旧标签，再插新标签，不会累积
+
 ---
 
 ## 工作流程
@@ -107,73 +199,28 @@ skill                   — 专业能力（仅关键成果表有）
 - 得分基于材料中的**量化成果**和**角色重要性**综合评定
 - 置信度取决于材料描述的详细程度——描述越具体、量化越清楚，置信度越高
 
-### Step 5：输出结构化结果
+### Step 5：写入能力标签
 
-按以下 JSON 结构输出：
+完成所有人员、所有维度的标签生成后，**不要直接输出 JSON 给用户**，而是调用 `write_employee_tags` MCP 工具将结果写入数据库。
 
-```json
-{
-  "batch_id": "BATCH_20250706_1200",
-  "assessment_activity_id": "TZ-2025-001",
-  "employees": [
-    {
-      "employee_id": "EMP_12345",
-      "employee_name": "张三",
-      "position_family": "技术研发类",
-      "position_family_code": "DYJS15",
-      "original_position": "后端开发工程师",
-      "original_grade": "P5",
-      "target_grade": "P6",
-      "assessment_result": "审核通过",
-      "dimension_tags": {
-        "技术专长": [
-          {
-            "tag_name": "复杂架构设计",
-            "score": 88,
-            "confidence": 0.92,
-            "evidence": "主导统一登录平台从单体到微服务架构升级，支撑日活10万+",
-            "source_materials": ["MAT_001"]
-          },
-          {
-            "tag_name": "高并发优化",
-            "score": 85,
-            "confidence": 0.88,
-            "evidence": "QPS从1000提升至5000，可用性从99.5%提升至99.99%",
-            "source_materials": ["MAT_001"]
-          }
-        ],
-        "技术创新": [
-          {
-            "tag_name": "工具/流程创新",
-            "score": 78,
-            "confidence": 0.85,
-            "evidence": "引入AI代码审查系统，缺陷检出率提升40%，Review效率提升60%",
-            "source_materials": ["MAT_002"]
-          }
-        ],
-        "客户导向": [
-          {
-            "tag_name": "用户体验优化",
-            "score": 82,
-            "confidence": 0.90,
-            "evidence": "优化首屏加载性能，从3.2s降至0.8s，用户满意度提升15%",
-            "source_materials": ["MAT_003"]
-          }
-        ],
-        "知识技能": [
-          {
-            "tag_name": "技术深度",
-            "score": 80,
-            "confidence": 0.86,
-            "evidence": "掌握分布式系统设计、数据库优化、微服务等核心技术栈",
-            "source_materials": ["MAT_001", "MAT_002"]
-          }
-        ]
-      }
-    }
-  ]
-}
+**写入流程**：
+
+1. 组装完整的请求体 JSON（包含所有人员的标签数据）
+2. 调用 `write_employee_tags` 工具
+3. 根据返回结果，用一句话告知用户处理结果
+
+**示例对话结尾**：
+
 ```
+用户：开始分析技术研发类P6的能力标签
+Agent 执行：
+  1. 调用 query_assessment_materials 拉取数据
+  2. 分组 → 维度分类 → 生成标签
+  3. 调用 write_employee_tags 写入数据库
+Agent 回复：已完成技术研发类P6共 15 人的能力标签分析，已写入数据库（批次：BATCH_20250714_0001，共生成 42 个标签）。
+```
+
+> ⚠️ 注意：不要将完整的 JSON 输出到对话中（人员多时数据量很大），写入完成后简洁告知用户即可。
 
 ---
 

@@ -497,8 +497,15 @@
           <td>历次评审记录（次数/每次的职系/职级/是否通过）</td>
           <td>获取员工的历史评审轨迹，辅助趋势分析</td>
         </tr>
+        <tr>
+          <td><code>write_employee_tags</code></td>
+          <td><code>employee_id, assessment_cycle, tags</code></td>
+          <td>写入结果（状态/写入数）</td>
+          <td>将Agent生成的个人能力标签写入数据库</td>
+        </tr>
       </tbody>
     </table>
+    <p class="callout" style="margin-top: 12px; padding: 10px 14px; background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 4px;"><strong>工具名：</strong><code>write_employee_tags</code> &nbsp;|&nbsp; <strong>用途：</strong>将Agent生成的个人能力标签写入数据库 &nbsp;|&nbsp; <strong>调用方式：</strong>POST</p>
     </div>
 
     <h3>4.3 MCP工具定义示例（JSON Schema）</h3>
@@ -1322,6 +1329,8 @@ pipeline:
     <p><strong>特点</strong>：数据量小（通常几十人），但需要覆盖旧标签。</p>
     <p><strong>流程</strong>：Pipeline通过接口1拉取updated_after的评审记录 → 分析 → 按(employee_id, assessment_cycle)覆盖写入。</p>
 
+    <p><strong>Agent 通过 MCP 工具 <code>write_employee_tags</code>（POST）调用写入接口。</strong></p>
+
     <h4>10.3.3 写入接口清单</h4>
     <div class="tw">
       <table>
@@ -1329,7 +1338,7 @@ pipeline:
         <tbody>
           <tr>
             <td><code>/api/v1/tags/employee</code></td>
-            <td><strong>PUT</strong></td>
+            <td><strong>POST</strong></td>
             <td>✅</td>
             <td>批量写入/覆盖个人能力标签。按(employee_id, assessment_cycle, dimension)匹配，存在则更新，不存在则插入</td>
           </tr>
@@ -1361,10 +1370,10 @@ pipeline:
       </table>
     </div>
 
-    <p><strong>为什么用PUT而不是POST？</strong>标签数据是幂等的——同一个人的同一份申报材料，无论分析多少次，标签应该一致。PUT语义是"有则更新、无则插入"（UPSERT），正好匹配。而POST用于新增维度配置这种非幂等操作。</p>
+    <p><strong>为什么用POST而不是PUT？</strong>写入接口使用 POST，因为 MCP 工具的调用方式固定为 POST。数据中台收到请求后通过"先删后插"策略保证幂等性——对同一个人重复调用不会产生重复数据。</p>
 
-    <h4>核心写入接口：PUT /api/v1/tags/employee</h4>
-    <pre><span class="tag">http</span>PUT /api/v1/tags/employee
+    <h4>核心写入接口：POST /api/v1/tags/employee</h4>
+    <pre><span class="tag">http</span>POST /api/v1/tags/employee
 Content-Type: application/json
 
 {
@@ -1722,7 +1731,7 @@ employee_capability_tags表中多了3行：
 │  3. 计算金标签（关联评审汇总 + 标签表 → D系数）                    │
 │  4. 写入数据库（调用下面3个PUT接口）                               │
 │                                                                 │
-│  写入接口（PUT，幂等）                                            │
+│  写入接口（POST，MCP）                                            │
 │  ├── /api/v1/tags/employee    → employee_capability_tags表      │
 │  ├── /api/v1/tags/gold        → gold_tags表                     │
 │  └── /api/v1/tags/benchmark   → position_benchmarks表           │
@@ -2062,6 +2071,7 @@ ORDER BY sort_order;</pre>
     <p>写入 AI 分析系统数据库，使用 <strong>UPSERT</strong> 保证幂等。</p>
 
     <h4>E1. 写入个人能力标签</h4>
+    <p>以下 SQL 为数据中台后端实际调用的 UPSERT 函数。Agent 通过 <strong>write_employee_tags</strong> MCP 工具调用此写入接口，数据中台收到请求后执行"先删后插"策略保证幂等性。</p>
     <pre><span class="tag">sql</span>INSERT INTO employee_capability_tags (
     employee_id, employee_name, position_family_code, position_family_name,
     original_position, original_grade, target_grade, assessment_cycle,
