@@ -8,6 +8,14 @@
 -- 扩展：向量相似度搜索（用于后续标签匹配，非必须）
 -- CREATE EXTENSION IF NOT EXISTS vector;
 
+-- 功能索引（用于写入函数中的 DELETE 操作，按 employee_id + assessment_cycle 快速定位）
+CREATE INDEX IF NOT EXISTS idx_emp_tags_delete
+    ON employee_capability_tags (employee_id, assessment_cycle);
+
+-- 排序索引（用于按评审周期倒序查询最新标签）
+CREATE INDEX IF NOT EXISTS idx_emp_tags_cycle
+    ON employee_capability_tags (assessment_cycle DESC);
+
 -- ============================================================
 -- 表1：employee_capability_tags（个人能力标签）
 -- 用途：存储每个人在每次评审中，每个维度下的能力标签。
