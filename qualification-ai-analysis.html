@@ -1182,8 +1182,10 @@ pipeline:
           <tr><td><code>id</code></td><td>BIGSERIAL</td><td>—</td><td>自增主键</td></tr>
           <tr><td><code>employee_id</code></td><td>VARCHAR(50)</td><td>✅</td><td>员工ID，来自任职资格平台</td></tr>
           <tr><td><code>employee_name</code></td><td>VARCHAR(50)</td><td>✅</td><td>员工姓名（冗余，方便查询和展示）</td></tr>
-          <tr><td><code>position_family</code></td><td>VARCHAR(50)</td><td>✅</td><td>职系：技术研发类 / 产品类 / 设计类</td></tr>
+          <tr><td><code>position_family_code</code></td><td>VARCHAR(20)</td><td>✅</td><td>岗位序列代码：DYJS15，对应任职资格平台码表 PostCode</td></tr>
+          <tr><td><code>position_family_name</code></td><td>VARCHAR(50)</td><td>✅</td><td>岗位序列名称：技术研发类 / 产品类 / 设计类</td></tr>
           <tr><td><code>original_position</code></td><td>VARCHAR(100)</td><td>✅</td><td>原岗位名称：后端开发工程师</td></tr>
+          <tr><td><code>original_grade</code></td><td>VARCHAR(20)</td><td>✅</td><td>原职级：P5，对应 TB_ZC_ReviewApply.OldPostLev</td></tr>
           <tr><td><code>target_grade</code></td><td>VARCHAR(20)</td><td>✅</td><td>申报目标职级：P6</td></tr>
           <tr><td><code>assessment_cycle</code></td><td>VARCHAR(20)</td><td>✅</td><td>评审周期标识：2025-H1</td></tr>
           <tr><td><code>dimension</code></td><td>VARCHAR(50)</td><td>✅</td><td>能力维度：技术专长 / 技术创新 / 客户导向 / 知识技能</td></tr>
@@ -1198,7 +1200,7 @@ pipeline:
         </tbody>
       </table>
     </div>
-    <p><strong>核心索引</strong>：<code>(employee_id, assessment_cycle, dimension)</code> 联合唯一索引——保证同一人同一周期同一维度下的标签不会重复插入。</p>
+    <p><strong>核心索引</strong>：<code>(employee_id, assessment_cycle, dimension)</code> 联合唯一索引——保证同一人同一周期同一维度下的标签不会重复插入。<code>(position_family_code, target_grade, assessment_cycle)</code> 联合索引——支持按岗位序列+职级+周期的批量查询。</p>
     <p><strong>查询模式</strong>：HR Agent最常见的查询是"张三最新一次评审的全部标签"，SQL是 <code>SELECT * FROM employee_capability_tags WHERE employee_id='EMP_12345' ORDER BY assessment_cycle DESC</code>，然后按dimension字段分组。</p>
 
     <h4>10.2.2 表2：gold_tags（金标签库）</h4>
@@ -1208,7 +1210,8 @@ pipeline:
         <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
         <tbody>
           <tr><td><code>id</code></td><td>BIGSERIAL</td><td>—</td><td>自增主键</td></tr>
-          <tr><td><code>position_family</code></td><td>VARCHAR(50)</td><td>✅</td><td>职系</td></tr>
+          <tr><td><code>position_family_code</code></td><td>VARCHAR(20)</td><td>✅</td><td>岗位序列代码：DYJS15，对应任职资格平台码表 PostCode</td></tr>
+          <tr><td><code>position_family_name</code></td><td>VARCHAR(50)</td><td>✅</td><td>岗位序列名称：技术研发类 / 产品类 / 设计类</td></tr>
           <tr><td><code>grade</code></td><td>VARCHAR(20)</td><td>✅</td><td>职级</td></tr>
           <tr><td><code>dimension</code></td><td>VARCHAR(50)</td><td>✅</td><td>能力维度</td></tr>
           <tr><td><code>tag_name</code></td><td>VARCHAR(100)</td><td>✅</td><td>标签名称</td></tr>
@@ -1225,7 +1228,7 @@ pipeline:
         </tbody>
       </table>
     </div>
-    <p><strong>核心索引</strong>：<code>(position_family, grade, dimension, tag_name)</code> 联合唯一索引。</p>
+    <p><strong>核心索引</strong>：<code>(position_family_code, grade, dimension, tag_name)</code> 联合唯一索引。<code>(position_family_code, grade, is_core DESC, distinction_coef DESC)</code> 联合索引——支持按岗位序列+职级筛选核心金标签并按区分度排序。</p>
     <p><strong>注意</strong>：这张表<strong>不存得分</strong>——得分在标签表里。gold_tags只存统计结果（D系数、P系数、均值），是<strong>只读快照</strong>，每次Pipeline全量覆盖。</p>
 
     <h4>10.2.3 表3：position_benchmarks（岗位基准画像）</h4>
@@ -1235,7 +1238,8 @@ pipeline:
         <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
         <tbody>
           <tr><td><code>id</code></td><td>BIGSERIAL</td><td>—</td><td>自增主键</td></tr>
-          <tr><td><code>position_family</code></td><td>VARCHAR(50)</td><td>✅</td><td>职系</td></tr>
+          <tr><td><code>position_family_code</code></td><td>VARCHAR(20)</td><td>✅</td><td>岗位序列代码：DYJS15，对应任职资格平台码表 PostCode</td></tr>
+          <tr><td><code>position_family_name</code></td><td>VARCHAR(50)</td><td>✅</td><td>岗位序列名称：技术研发类 / 产品类 / 设计类</td></tr>
           <tr><td><code>grade</code></td><td>VARCHAR(20)</td><td>✅</td><td>职级</td></tr>
           <tr><td><code>dimension</code></td><td>VARCHAR(50)</td><td>✅</td><td>能力维度</td></tr>
           <tr><td><code>tag_name</code></td><td>VARCHAR(100)</td><td>✅</td><td>标签名称</td></tr>
@@ -1249,7 +1253,7 @@ pipeline:
         </tbody>
       </table>
     </div>
-    <p><strong>核心索引</strong>：<code>(position_family, grade, dimension, tag_name)</code> 联合唯一索引。</p>
+    <p><strong>核心索引</strong>：<code>(position_family_code, grade, dimension, tag_name)</code> 联合唯一索引。</p>
 
     <h4>10.2.4 表4：dimension_schema（维度定义表）</h4>
     <p><strong>配置表</strong>，定义每个职系有哪些能力维度。HR在后台配置，代码读取后动态注入Prompt。这是系统的<strong>元数据层</strong>。</p>
@@ -1258,7 +1262,8 @@ pipeline:
         <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>说明</th></tr></thead>
         <tbody>
           <tr><td><code>id</code></td><td>BIGSERIAL</td><td>—</td><td>自增主键</td></tr>
-          <tr><td><code>position_family</code></td><td>VARCHAR(50)</td><td>✅</td><td>职系</td></tr>
+          <tr><td><code>position_family_code</code></td><td>VARCHAR(20)</td><td>✅</td><td>岗位序列代码：DYJS15，对应任职资格平台码表 PostCode</td></tr>
+          <tr><td><code>position_family_name</code></td><td>VARCHAR(50)</td><td>✅</td><td>岗位序列名称：技术研发类 / 产品类 / 设计类</td></tr>
           <tr><td><code>dimension_name</code></td><td>VARCHAR(50)</td><td>✅</td><td>维度名称：技术专长</td></tr>
           <tr><td><code>description</code></td><td>TEXT</td><td>✅</td><td>维度描述：考察技术深度和广度，包括但不限于...</td></tr>
           <tr><td><code>sort_order</code></td><td>SMALLINT</td><td>—</td><td>展示排序 1-5</td></tr>
@@ -1267,23 +1272,23 @@ pipeline:
         </tbody>
       </table>
     </div>
-    <p><strong>核心索引</strong>：<code>(position_family, dimension_name)</code> 联合唯一索引。</p>
+    <p><strong>核心索引</strong>：<code>(position_family_code, dimension_name)</code> 联合唯一索引。</p>
 
     <h4>10.2.5 表关系一览</h4>
     <div class="schema">
       ┌─────────────────────────────────────────────────────────────┐
       │  dimension_schema（配置表 - 元数据）                         │
-      │  定义每个职系有哪些维度                                       │
-      │  PK: (position_family, dimension_name)                      │
+      │  定义每个岗位序列有哪些维度                                    │
+      │  PK: (position_family_code, dimension_name)                 │
       └──────────────────────┬──────────────────────────────────────┘
-                             │ position_family → 关联维度定义
+                             │ position_family_code/name → 关联维度定义
                              ▼
       ┌─────────────────────────────────────────────────────────────┐
       │  employee_capability_tags（数据表 - 个人标签）                │
       │  每行 = 一个人在一个维度下的一个标签                          │
       │  PK: id  |  UK: (employee_id, assessment_cycle, dimension)  │
       │                                                             │
-      │  按 (position_family, grade, dimension, tag_name) 聚合      │
+      │  按 (position_family_code, grade, dimension, tag_name) 聚合 │
       │  + 关联任职资格平台的 通过/未通过 分组信息                    │
       └──────┬───────────────────────────────┬──────────────────────┘
              │                               │
@@ -1292,14 +1297,15 @@ pipeline:
       │  gold_tags       │          │  position_benchmarks         │
       │  金标签库         │          │  岗位基准画像                 │
       │  D系数 + P系数    │          │  均值 + 中位数 + 标准差       │
-      │  UK: (pf, grade,  │          │  UK: (pf, grade, dim, tag)   │
-      │       dim, tag)   │          │                              │
+      │  UK: (pf_code,    │          │  UK: (pf_code, grade,        │
+      │       grade, dim, │          │       dim, tag)              │
+      │       tag)        │          │                              │
       └──────────────────┘          └──────────────────────────────┘
     </div>
 
     <div class="callout">
       <div class="cl">💡 面试话术 <span class="rationale">展示数据建模能力</span></div>
-      <p>"数据库设计我遵循一个原则：<mark class="key">表结构反映业务实体，索引反映查询模式</mark>。employee_capability_tags的核心索引是(employee_id, assessment_cycle, dimension)，因为HR Agent最常查的是'张三最新一次评审的标签'。gold_tags和position_benchmarks的核心索引是(position_family, grade, dimension, tag_name)，因为查询模式是'技术研发类-P6-技术专长有哪些金标签'。dimension_schema是配置表，与业务数据表解耦——新增职系只需要加一行配置，<mark class="key">不需要改代码</mark>。这些索引不是拍脑袋加的，都是从业务查询模式倒推出来的。"</p>
+      <p>"数据库设计我遵循一个原则：<mark class="key">表结构反映业务实体，索引反映查询模式</mark>。employee_capability_tags的核心索引是(employee_id, assessment_cycle, dimension)，因为HR Agent最常查的是'张三最新一次评审的标签'。gold_tags和position_benchmarks的核心索引是(position_family_code, grade, dimension, tag_name)，因为查询模式是'DYJS15-P6-技术专长有哪些金标签'。dimension_schema是配置表，与业务数据表解耦——新增岗位序列只需要加一行配置，<mark class="key">不需要改代码</mark>。这些索引不是拍脑袋加的，都是从业务查询模式倒推出来的。"</p>
     </div>
 
     <!-- ========== 10.3 ========== -->
