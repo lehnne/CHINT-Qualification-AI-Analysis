@@ -35,8 +35,8 @@ CREATE TABLE employee_capability_tags (
     created_at          TIMESTAMPTZ     DEFAULT NOW(), -- 创建时间
     updated_at          TIMESTAMPTZ     DEFAULT NOW(), -- 更新时间
 
-    -- 唯一约束：同一人同一评审周期同一维度下，不会重复插入标签
-    UNIQUE (employee_id, assessment_cycle, dimension)
+    -- 唯一约束：同一人同一评审周期同一维度下，标签名称唯一，确保UPSERT幂等
+    UNIQUE (employee_id, assessment_cycle, dimension, tag_name)
 );
 
 COMMENT ON TABLE  employee_capability_tags IS '个人能力标签表：存储每个人在每次评审中各维度下的能力标签，每行=人员+评审周期+维度下的一个标签';
