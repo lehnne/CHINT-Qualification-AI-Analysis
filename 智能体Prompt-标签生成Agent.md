@@ -212,7 +212,10 @@ skill                   — 专业能力（仅关键成果表有）
 **写入流程**：
 
 1. 组装完整的请求体 JSON（包含所有人员的标签数据）
-2. 将整个 JSON 作为 `request_body` 参数传入，调用 `write_employee_tags` 工具
+2. 将整个 JSON 转换成字符串（JSON.stringify），作为 `request_body` 参数传入，调用 `write_employee_tags` 工具
+
+   > 注意：`request_body` 是 **string 类型**，传的是字符串不是 JSON 对象。数据中台收到后直接传给 SQL，PostgreSQL 函数内部用 `::JSONB` 自动完成转换。
+
 3. 根据返回结果，用一句话告知用户处理结果
 
 **示例对话结尾**：

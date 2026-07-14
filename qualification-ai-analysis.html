@@ -557,7 +557,7 @@
     "properties": {
       "request_body": {
         "type": "string",
-        "description": "完整的JSON请求体字符串，格式如下：{\"batch_id\":\"批次ID\",\"assessment_cycle\":\"评审周期\",\"mode\":\"initial或incremental\",\"tags\":[{\"employee_id\":\"工号\",\"employee_name\":\"姓名\",\"position_family_code\":\"岗位序列代码\",\"position_family_name\":\"岗位序列名称\",\"original_position\":\"原岗位\",\"original_grade\":\"原职级\",\"target_grade\":\"目标职级\",\"dimension_tags\":{\"维度名\":[{\"tag_name\":\"标签名\",\"score\":0-100,\"confidence\":0.00-1.00,\"evidence\":\"依据\",\"source_materials\":[\"材料ID\"]}]}}]}"
+        "description": "完整的JSON请求体字符串（需先JSON.stringify），格式如下：{\"batch_id\":\"批次ID\",\"assessment_cycle\":\"评审周期\",\"mode\":\"initial或incremental\",\"tags\":[{\"employee_id\":\"工号\",\"employee_name\":\"姓名\",\"position_family_code\":\"岗位序列代码\",\"position_family_name\":\"岗位序列名称\",\"original_position\":\"原岗位\",\"original_grade\":\"原职级\",\"target_grade\":\"目标职级\",\"dimension_tags\":{\"维度名\":[{\"tag_name\":\"标签名\",\"score\":0-100,\"confidence\":0.00-1.00,\"evidence\":\"依据\",\"source_materials\":[\"材料ID\"]}]}}]}"
       }
     },
     "required": ["request_body"]
@@ -1409,7 +1409,7 @@ pipeline:
     <p><strong>为什么用POST而不是PUT？</strong>写入接口使用 POST，因为 MCP 工具的调用方式固定为 POST。数据中台收到请求后通过"先删后插"策略保证幂等性——对同一个人重复调用不会产生重复数据。</p>
 
     <h4>核心写入接口：POST /api/v1/tags/employee</h4>
-    <p class="sub-desc">MCP 工具 <code>write_employee_tags</code> 调用此接口，参数 <code>request_body</code> 即为整个 HTTP Body。</p>
+    <p class="sub-desc">MCP 工具 <code>write_employee_tags</code> 调用此接口，参数 <code>request_body</code> 为 JSON 字符串，数据中台直接传给 SQL，函数内部用 <code>::JSONB</code> 自动转换。</p>
     <pre><span class="tag">http</span>POST /api/v1/tags/employee
 Content-Type: application/json
 
