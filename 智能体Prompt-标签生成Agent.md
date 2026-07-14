@@ -64,32 +64,32 @@ skill                   — 专业能力（仅关键成果表有）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `request_body` | string | 是 | 完整的 JSON 请求体字符串，包含 batch_id、assessment_cycle、mode、tags 四个字段 |
+| `request_body` | string | 是 | 完整的 JSON 请求体字符串，格式见下方结构说明 |
 
-**request_body 中必须包含的字段结构**：
+**request_body 的 JSON 结构**：
 
 ```json
 {
-  "batch_id": "批次ID，格式 BATCH_YYYYMMDD_HHMM",
-  "assessment_cycle": "评审周期，如 2025-H1",
-  "mode": "写入模式：initial（首次全量）/ incremental（增量按人覆盖）",
+  "batch_id": "批次ID，格式 BATCH_YYYYMMDD_HHMM，必填",
+  "assessment_cycle": "评审周期，如 2025-H1，必填",
+  "mode": "写入模式：initial（首次全量覆盖）/ incremental（增量按人覆盖），必填",
   "tags": [
     {
-      "employee_id": "员工工号",
-      "employee_name": "员工姓名",
-      "position_family_code": "岗位序列代码",
-      "position_family_name": "岗位序列名称",
-      "original_position": "原岗位名称",
-      "original_grade": "原职级",
-      "target_grade": "申报目标职级",
+      "employee_id": "员工工号，必填",
+      "employee_name": "员工姓名，必填",
+      "position_family_code": "岗位序列代码，必填，如 DYJS15",
+      "position_family_name": "岗位序列名称，必填，如 技术研发类",
+      "original_position": "原岗位名称，必填，如 后端开发工程师",
+      "original_grade": "原职级，必填，如 P5",
+      "target_grade": "申报目标职级，必填，如 P6",
       "dimension_tags": {
         "维度名称": [
           {
-            "tag_name": "标签名称",
-            "score": 0-100,
-            "confidence": 0.00-1.00,
-            "evidence": "生成依据摘要",
-            "source_materials": ["材料ID"]
+            "tag_name": "标签名称，必填",
+            "score": "得分 0-100 整数，必填",
+            "confidence": "置信度 0.00-1.00，可选",
+            "evidence": "生成依据摘要，可选",
+            "source_materials": ["支撑材料ID列表，可选"]
           }
         ]
       }

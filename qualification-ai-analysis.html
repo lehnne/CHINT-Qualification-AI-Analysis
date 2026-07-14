@@ -501,7 +501,7 @@
           <td><code>write_employee_tags</code></td>
           <td><code>request_body</code></td>
           <td>写入结果（状态/写入数）</td>
-          <td>将Agent生成的个人能力标签写入数据库。传入完整的JSON请求体字符串，包含batch_id、assessment_cycle、mode、tags四个字段</td>
+          <td>将Agent生成的个人能力标签写入数据库。传入完整的JSON请求体字符串（request_body），包含batch_id、assessment_cycle、mode、tags四个字段</td>
         </tr>
       </tbody>
     </table>
@@ -538,6 +538,42 @@
             "priority": { "type": "number", "description": "维度优先级，1-5，用于排序展示" },
             "typical_evidence": { "type": "string", "description": "该维度下典型的能力证据示例" }
           }
+        }
+      }
+    }
+  }
+}</pre>
+
+    <p class="callout" style="margin-top: 12px; padding: 10px 14px; background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 4px;"><strong>写入工具：</strong><code>write_employee_tags</code> &nbsp;|&nbsp; <strong>用途：</strong>将Agent生成的能力标签写入数据库 &nbsp;|&nbsp; <strong>调用方式：</strong>POST &nbsp;|&nbsp; <strong>参数：</strong><code>request_body</code>（字符串，传入完整的JSON请求体）</p>
+
+    <p>以下为 <code>write_employee_tags</code> 的完整 JSON Schema 定义：</p>
+
+    <pre><span class="tag">json</span>{
+  "name": "write_employee_tags",
+  "description": "将Step4生成的能力标签写入数据库。必须在调用query_assessment_materials完成数据拉取、维度分类、标签生成之后调用。传入的request_body包含batch_id、assessment_cycle、mode、tags四个字段，其中tags为员工标签数组。写入完成后返回批次统计结果。",
+  "method": "POST",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "request_body": {
+        "type": "string",
+        "description": "完整的JSON请求体字符串，格式如下：{\"batch_id\":\"批次ID\",\"assessment_cycle\":\"评审周期\",\"mode\":\"initial或incremental\",\"tags\":[{\"employee_id\":\"工号\",\"employee_name\":\"姓名\",\"position_family_code\":\"岗位序列代码\",\"position_family_name\":\"岗位序列名称\",\"original_position\":\"原岗位\",\"original_grade\":\"原职级\",\"target_grade\":\"目标职级\",\"dimension_tags\":{\"维度名\":[{\"tag_name\":\"标签名\",\"score\":0-100,\"confidence\":0.00-1.00,\"evidence\":\"依据\",\"source_materials\":[\"材料ID\"]}]}}]}"
+      }
+    },
+    "required": ["request_body"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "code": { "type": "integer", "description": "状态码，0=成功" },
+      "message": { "type": "string", "description": "返回信息" },
+      "data": {
+        "type": "object",
+        "properties": {
+          "batch_id": { "type": "string", "description": "批次ID" },
+          "total_employees": { "type": "integer", "description": "员工总数" },
+          "total_tags": { "type": "integer", "description": "标签总数" },
+          "inserted": { "type": "integer", "description": "成功写入数" }
         }
       }
     }
@@ -1340,7 +1376,7 @@ pipeline:
             <td><code>/api/v1/tags/employee</code></td>
             <td><strong>POST</strong></td>
             <td>✅</td>
-            <td>批量写入/覆盖个人能力标签。按(employee_id, assessment_cycle, dimension)匹配，存在则更新，不存在则插入</td>
+            <td>批量写入/覆盖个人能力标签。MCP工具传入request_body，服务端按"先删后插"策略保证幂等性</td>
           </tr>
           <tr>
             <td><code>/api/v1/tags/gold</code></td>
@@ -1373,6 +1409,7 @@ pipeline:
     <p><strong>为什么用POST而不是PUT？</strong>写入接口使用 POST，因为 MCP 工具的调用方式固定为 POST。数据中台收到请求后通过"先删后插"策略保证幂等性——对同一个人重复调用不会产生重复数据。</p>
 
     <h4>核心写入接口：POST /api/v1/tags/employee</h4>
+    <p class="sub-desc">MCP 工具 <code>write_employee_tags</code> 调用此接口，参数 <code>request_body</code> 即为整个 HTTP Body。</p>
     <pre><span class="tag">http</span>POST /api/v1/tags/employee
 Content-Type: application/json
 
@@ -1384,8 +1421,10 @@ Content-Type: application/json
     {
       "employee_id": "EMP_12345",
       "employee_name": "张三",
-      "position_family": "技术研发类",
+      "position_family_code": "DYJS15",
+      "position_family_name": "技术研发类",
       "original_position": "后端开发工程师",
+      "original_grade": "P5",
       "target_grade": "P6",
       "dimension_tags": {
         "技术专长": [
