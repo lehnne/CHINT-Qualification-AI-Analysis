@@ -499,9 +499,9 @@
         </tr>
         <tr>
           <td><code>write_employee_tags</code></td>
-          <td><code>employee_id, assessment_cycle, tags</code></td>
+          <td><code>request_body</code></td>
           <td>写入结果（状态/写入数）</td>
-          <td>将Agent生成的个人能力标签写入数据库</td>
+          <td>将Agent生成的个人能力标签写入数据库。传入完整的JSON请求体字符串，包含batch_id、assessment_cycle、mode、tags四个字段</td>
         </tr>
       </tbody>
     </table>

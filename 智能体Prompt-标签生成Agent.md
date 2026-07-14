@@ -56,7 +56,7 @@ skill                   — 专业能力（仅关键成果表有）
 
 **工具名**：`write_employee_tags`
 
-**功能**：将分析生成的个人能力标签写入 AI 分析系统数据库。
+**功能**：将 Step 4 生成的个人能力标签写入数据库。必须在调用 `query_assessment_materials` 完成数据拉取、维度分类、标签生成之后调用。
 
 **调用方式**：POST
 
@@ -64,33 +64,39 @@ skill                   — 专业能力（仅关键成果表有）
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `batch_id` | string | 是 | 批次ID，如 `BATCH_20250714_0001` |
-| `assessment_cycle` | string | 是 | 评审周期，如 `2025-H1` |
-| `mode` | string | 是 | 写入模式：`initial`（首次全量）/ `incremental`（增量补充） |
-| `tags` | array | 是 | 标签数组，每个元素包含员工信息和标签数据 |
+| `request_body` | string | 是 | 完整的 JSON 请求体字符串，包含 batch_id、assessment_cycle、mode、tags 四个字段 |
 
-**tags 数组中每个元素的结构**：
+**request_body 中必须包含的字段结构**：
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `employee_id` | string | 是 | 员工工号 |
-| `employee_name` | string | 是 | 员工姓名 |
-| `position_family_code` | string | 是 | 岗位序列代码 |
-| `position_family_name` | string | 是 | 岗位序列名称 |
-| `original_position` | string | 是 | 原岗位名称 |
-| `original_grade` | string | 是 | 原职级 |
-| `target_grade` | string | 是 | 申报目标职级 |
-| `dimension_tags` | object | 是 | 维度标签对象，key=维度名称，value=标签数组 |
-
-**dimension_tags 中每个标签的结构**：
-
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `tag_name` | string | 是 | 标签名称 |
-| `score` | int | 是 | 得分 0-100 |
-| `confidence` | decimal | 否 | 置信度 0.00-1.00 |
-| `evidence` | string | 否 | 生成依据 |
-| `source_materials` | array | 否 | 支撑材料ID列表 |
+```json
+{
+  "batch_id": "批次ID，格式 BATCH_YYYYMMDD_HHMM",
+  "assessment_cycle": "评审周期，如 2025-H1",
+  "mode": "写入模式：initial（首次全量）/ incremental（增量按人覆盖）",
+  "tags": [
+    {
+      "employee_id": "员工工号",
+      "employee_name": "员工姓名",
+      "position_family_code": "岗位序列代码",
+      "position_family_name": "岗位序列名称",
+      "original_position": "原岗位名称",
+      "original_grade": "原职级",
+      "target_grade": "申报目标职级",
+      "dimension_tags": {
+        "维度名称": [
+          {
+            "tag_name": "标签名称",
+            "score": 0-100,
+            "confidence": 0.00-1.00,
+            "evidence": "生成依据摘要",
+            "source_materials": ["材料ID"]
+          }
+        ]
+      }
+    }
+  ]
+}
+```
 
 **完整请求体示例**：
 
@@ -206,7 +212,7 @@ skill                   — 专业能力（仅关键成果表有）
 **写入流程**：
 
 1. 组装完整的请求体 JSON（包含所有人员的标签数据）
-2. 调用 `write_employee_tags` 工具
+2. 将整个 JSON 作为 `request_body` 参数传入，调用 `write_employee_tags` 工具
 3. 根据返回结果，用一句话告知用户处理结果
 
 **示例对话结尾**：
