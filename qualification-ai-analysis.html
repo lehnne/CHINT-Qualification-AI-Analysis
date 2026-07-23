@@ -1220,7 +1220,7 @@ pipeline:
     <p><strong>用途：</strong>数据中台直接写入原始JSON，触发器自动解析metadata回填。用于审计追溯和失败重跑。</p>
     <p>字段：id(BIGSERIAL PK), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), batch_id(VARCHAR(50) - 触发器自动解析回填), assessment_cycle(VARCHAR(20) - 触发器自动解析回填), mode(VARCHAR(20) - 触发器自动解析回填), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMP DEFAULT NOW())</p>
     <p>索引：idx_batch_log_status(status), idx_batch_log_batch(batch_id), idx_batch_log_cycle(assessment_cycle DESC)</p>
-    <p>触发器：trg_batch_upload_parse_metadata — BEFORE INSERT，自动从 raw_json 解析 batch_id/assessment_cycle/mode 回填</p>
+    <p>触发器：trg_batch_upload_parse_metadata — BEFORE INSERT，自动从 raw_json 解析 batch_id/assessment_cycle/mode/employee_count/tag_count 回填</p>
     <p>status取值：pending→processing→success/failed</p>
     <p>写入方式：数据中台执行 INSERT INTO batch_upload_log (raw_json, status) VALUES (${request_body}, 'pending')，不解析、不转存</p>
 
@@ -2266,13 +2266,35 @@ CREATE INDEX idx_batch_log_cycle ON batch_upload_log (assessment_cycle DESC);
 -- 触发器：自动从 raw_json 解析 batch_id/assessment_cycle/mode 回填
 CREATE OR REPLACE FUNCTION parse_batch_upload_metadata()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
-DECLARE v_json JSONB; BEGIN
+DECLARE
+    v_json     JSONB;
+    v_tag_elem JSONB;
+    v_dim_key  TEXT;
+BEGIN
     IF NEW.raw_json IS NOT NULL AND NEW.batch_id IS NULL THEN
         BEGIN
             v_json := REPLACE(NEW.raw_json, '\"', '"')::JSONB;
             NEW.batch_id := v_json ->> 'batch_id';
             NEW.assessment_cycle := v_json ->> 'assessment_cycle';
             NEW.mode := v_json ->> 'mode';
+
+            NEW.employee_count := 0;
+            NEW.tag_count := 0;
+            IF v_json ? 'tags' AND jsonb_typeof(v_json -> 'tags') = 'array' THEN
+                NEW.employee_count := jsonb_array_length(v_json -> 'tags');
+                FOR v_tag_elem IN SELECT * FROM jsonb_array_elements(v_json -> 'tags') LOOP
+                    IF v_tag_elem ? 'dimension_tags' AND jsonb_typeof(v_tag_elem -> 'dimension_tags') = 'object' THEN
+                        FOR v_dim_key IN SELECT * FROM jsonb_object_keys(v_tag_elem -> 'dimension_tags') LOOP
+                            IF jsonb_typeof(v_tag_elem -> 'dimension_tags' -> v_dim_key) = 'array' THEN
+                                NEW.tag_count := NEW.tag_count + jsonb_array_length(
+                                    v_tag_elem -> 'dimension_tags' -> v_dim_key
+                                );
+                            END IF;
+                        END LOOP;
+                    END IF;
+                END LOOP;
+            END IF;
+
         EXCEPTION WHEN OTHERS THEN
             NEW.status := 'failed';
             NEW.error_message := '触发器解析raw_json失败: ' || SQLERRM;

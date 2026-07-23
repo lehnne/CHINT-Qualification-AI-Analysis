@@ -56,15 +56,42 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_json JSONB;
+    v_json     JSONB;
+    v_tag_elem JSONB;
+    v_dim_key  TEXT;
 BEGIN
     -- 只有当 raw_json 有值且元数据字段为空时才解析
     IF NEW.raw_json IS NOT NULL AND NEW.batch_id IS NULL THEN
         BEGIN
             v_json := REPLACE(NEW.raw_json, '\"', '"')::JSONB;
+
+            -- 提取元数据字段
             NEW.batch_id        := v_json ->> 'batch_id';
             NEW.assessment_cycle := v_json ->> 'assessment_cycle';
             NEW.mode             := v_json ->> 'mode';
+
+            -- 统计人员总数和标签总数
+            NEW.employee_count := 0;
+            NEW.tag_count := 0;
+
+            IF v_json ? 'tags' AND jsonb_typeof(v_json -> 'tags') = 'array' THEN
+                NEW.employee_count := jsonb_array_length(v_json -> 'tags');
+
+                FOR v_tag_elem IN SELECT * FROM jsonb_array_elements(v_json -> 'tags')
+                LOOP
+                    IF v_tag_elem ? 'dimension_tags' AND jsonb_typeof(v_tag_elem -> 'dimension_tags') = 'object' THEN
+                        FOR v_dim_key IN SELECT * FROM jsonb_object_keys(v_tag_elem -> 'dimension_tags')
+                        LOOP
+                            IF jsonb_typeof(v_tag_elem -> 'dimension_tags' -> v_dim_key) = 'array' THEN
+                                NEW.tag_count := NEW.tag_count + jsonb_array_length(
+                                    v_tag_elem -> 'dimension_tags' -> v_dim_key
+                                );
+                            END IF;
+                        END LOOP;
+                    END IF;
+                END LOOP;
+            END IF;
+
         EXCEPTION
             WHEN OTHERS THEN
                 -- 解析失败不阻断插入，标记状态为 failed
