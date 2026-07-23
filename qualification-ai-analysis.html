@@ -550,7 +550,7 @@
 
     <pre><span class="tag">json</span>{
   "name": "write_employee_tags",
-  "description": "将Step4生成的能力标签写入中间表（先存原始JSON，异步解析转存）。必须在调用query_assessment_materials完成数据拉取、维度分类、标签生成之后调用。传入的request_body包含batch_id、assessment_cycle、mode、tags四个字段，其中tags为员工标签数组。数据中台收到后直接存入中间表batch_upload_log，解析转存由定时任务自动执行。写入完成后返回批次状态。",
+  "description": "将Step4生成的能力标签写入中间表（先存原始JSON，触发器自动解析metadata回填）。必须在调用query_assessment_materials完成数据拉取、维度分类、标签生成之后调用。传入的request_body包含batch_id、assessment_cycle、mode、tags四个字段，其中tags为员工标签数组。数据中台收到后直接存入中间表batch_upload_log，触发器自动解析metadata，完整解析转存由process_batch_upload处理。写入完成后返回批次状态。",
   "method": "POST",
   "parameters": {
     "type": "object",
@@ -1217,9 +1217,10 @@ pipeline:
     <p>选<strong>PostgreSQL</strong>作为独立数据库——不依赖任职资格平台、不依赖飞书多维表格。原因很简单：聚合查询需要毫秒级响应，且未来可以接BI工具做可视化。</p>
 
     <h4>10.2.0 表0：batch_upload_log（中间表/批次原始数据归档）</h4>
-    <p><strong>用途：</strong>数据中台直接写入原始JSON，解析转存过程从中读取并转存到业务表。用于审计追溯和失败重跑。</p>
-    <p>字段：id(BIGSERIAL PK), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), batch_id(VARCHAR(50) - 解析时回填), assessment_cycle(VARCHAR(20) - 解析时回填), mode(VARCHAR(20) - 解析时回填), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMPTZ DEFAULT NOW())</p>
+    <p><strong>用途：</strong>数据中台直接写入原始JSON，触发器自动解析metadata回填。用于审计追溯和失败重跑。</p>
+    <p>字段：id(BIGSERIAL PK), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), batch_id(VARCHAR(50) - 触发器自动解析回填), assessment_cycle(VARCHAR(20) - 触发器自动解析回填), mode(VARCHAR(20) - 触发器自动解析回填), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMPTZ DEFAULT NOW())</p>
     <p>索引：idx_batch_log_status(status), idx_batch_log_batch(batch_id), idx_batch_log_cycle(assessment_cycle DESC)</p>
+    <p>触发器：trg_batch_upload_parse_metadata — BEFORE INSERT，自动从 raw_json 解析 batch_id/assessment_cycle/mode 回填</p>
     <p>status取值：pending→processing→success/failed</p>
     <p>写入方式：数据中台执行 INSERT INTO batch_upload_log (raw_json, status) VALUES (${request_body}, 'pending')，不解析、不转存</p>
 
@@ -1328,10 +1329,11 @@ pipeline:
     <div class="schema">
       ┌─────────────────────────────────────────────────────────────┐
       │  batch_upload_log（中间表 - 接收原始JSON）                    │
-      │  数据中台直接写入raw_json，定时解析转存到业务表                │
+      │  数据中台直接写入raw_json，触发器自动解析metadata回填          │
       │  PK: id  |  IDX: status（pending记录检索）                    │
       └──────────────────────┬──────────────────────────────────────┘
-                             │ 定时任务：CALL process_batch_upload(null)
+                             │ 触发器自动解析回填metadata
+                             │ CALL process_batch_upload(null) 做完整解析
                              ▼
       ┌─────────────────────────────────────────────────────────────┐
       │  dimension_schema（配置表 - 元数据）                         │
@@ -1390,7 +1392,7 @@ pipeline:
             <td><code>/api/v1/tags/employee</code></td>
             <td><strong>POST</strong></td>
             <td>✅</td>
-            <td>批量写入/覆盖个人能力标签。MCP工具传入request_body，数据中台先存入中间表batch_upload_log，再通过定时任务异步解析转存到employee_capability_tags</td>
+            <td>批量写入/覆盖个人能力标签。MCP工具传入request_body，数据中台先存入中间表batch_upload_log（触发器自动解析metadata回填），再通过process_batch_upload异步解析转存到employee_capability_tags</td>
           </tr>
           <tr>
             <td><code>/api/v1/tags/gold</code></td>
@@ -1420,10 +1422,10 @@ pipeline:
       </table>
     </div>
 
-    <p><strong>为什么用POST而不是PUT？</strong>写入接口使用 POST，因为 MCP 工具的调用方式固定为 POST。数据中台收到请求后先存入中间表（简单 INSERT），解析转存由定时任务执行，通过"先删后插"策略保证幂等性——对同一个人重复调用不会产生重复数据。</p>
+    <p><strong>为什么用POST而不是PUT？</strong>写入接口使用 POST，因为 MCP 工具的调用方式固定为 POST。数据中台收到请求后先存入中间表（触发器自动解析metadata回填），通过"先删后插"策略保证幂等性——对同一个人重复调用不会产生重复数据。</p>
 
     <h4>核心写入接口：POST /api/v1/tags/employee</h4>
-    <p class="sub-desc">MCP 工具 <code>write_employee_tags</code> 调用此接口，参数 <code>request_body</code> 为 JSON 字符串，数据中台直接存入中间表 <code>batch_upload_log.raw_json</code> 字段，不解析、不转存。解析转存由定时任务 <code>CALL process_batch_upload(null)</code> 自动执行。</p>
+    <p class="sub-desc">MCP 工具 <code>write_employee_tags</code> 调用此接口，参数 <code>request_body</code> 为 JSON 字符串，数据中台直接存入中间表 <code>batch_upload_log.raw_json</code> 字段，触发器自动解析 metadata 回填。完整解析转存由 <code>CALL process_batch_upload(null)</code> 手动或定时执行。</p>
     <pre><span class="tag">http</span>POST /api/v1/tags/employee
 Content-Type: application/json
 
@@ -2120,16 +2122,16 @@ WHERE position_family = :position_family
   AND is_active = TRUE
 ORDER BY sort_order;</pre>
 
-    <h4>Part E：写入接口 SQL（PostgreSQL 中间表 + 异步解析转存）</h4>
-    <p>写入采用两步走策略：<strong>① 数据中台直接 INSERT 原始 JSON 到中间表 → ② 定时任务解析转存到业务表</strong>。这样写入链路简单（一条 INSERT），解析失败可重试，不影响写入方。</p>
+    <h4>Part E：写入接口 SQL（PostgreSQL 中间表 + 触发器 + 异步解析转存）</h4>
+    <p>写入采用两步走策略：<strong>① 数据中台直接 INSERT 原始 JSON 到中间表（触发器自动解析metadata回填） → ② process_batch_upload 解析转存到业务表</strong>。这样写入链路简单（一条 INSERT），解析失败可重试，不影响写入方。</p>
 
     <h4>E1. 数据中台写入中间表</h4>
-    <p>数据中台收到 HTTP POST 请求后，只需执行一条 INSERT，将完整的 request_body 字符串存入 <code>batch_upload_log.raw_json</code>：</p>
+    <p>数据中台收到 HTTP POST 请求后，只需执行一条 INSERT，将完整的 request_body 字符串存入 <code>batch_upload_log.raw_json</code>。触发器自动解析 <code>batch_id</code>、<code>assessment_cycle</code>、<code>mode</code> 回填到同一行：</p>
     <pre><span class="tag">sql</span>INSERT INTO batch_upload_log (raw_json, status)
 VALUES (${request_body}, 'pending');</pre>
 
     <h4>E2. 解析转存到业务表</h4>
-    <p>定时任务执行以下存储过程，从 batch_upload_log 读取 pending 记录，解析 JSON 并转存到 employee_capability_tags：</p>
+    <p>执行以下存储过程，从 batch_upload_log 读取 pending 记录，解析 JSON 并转存到 employee_capability_tags：</p>
     <pre><span class="tag">sql</span>-- 处理所有 pending 记录
 CALL process_batch_upload(null);
 
@@ -2260,6 +2262,27 @@ CREATE TABLE batch_upload_log (
 CREATE INDEX idx_batch_log_status ON batch_upload_log (status);
 CREATE INDEX idx_batch_log_batch ON batch_upload_log (batch_id);
 CREATE INDEX idx_batch_log_cycle ON batch_upload_log (assessment_cycle DESC);
+
+-- 触发器：自动从 raw_json 解析 batch_id/assessment_cycle/mode 回填
+CREATE OR REPLACE FUNCTION parse_batch_upload_metadata()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE v_json JSONB; BEGIN
+    IF NEW.raw_json IS NOT NULL AND NEW.batch_id IS NULL THEN
+        BEGIN
+            v_json := REPLACE(NEW.raw_json, '\"', '"')::JSONB;
+            NEW.batch_id := v_json ->> 'batch_id';
+            NEW.assessment_cycle := v_json ->> 'assessment_cycle';
+            NEW.mode := v_json ->> 'mode';
+        EXCEPTION WHEN OTHERS THEN
+            NEW.status := 'failed';
+            NEW.error_message := '触发器解析raw_json失败: ' || SQLERRM;
+        END;
+    END IF;
+    RETURN NEW;
+END; $$;
+CREATE TRIGGER trg_batch_upload_parse_metadata
+    BEFORE INSERT ON batch_upload_log
+    FOR EACH ROW EXECUTE FUNCTION parse_batch_upload_metadata();
 
 CREATE TABLE employee_capability_tags (
     id BIGSERIAL PRIMARY KEY,

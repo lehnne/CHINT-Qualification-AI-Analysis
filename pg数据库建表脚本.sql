@@ -33,17 +33,53 @@ CREATE INDEX idx_batch_log_batch   ON batch_upload_log (batch_id);
 CREATE INDEX idx_batch_log_cycle   ON batch_upload_log (assessment_cycle DESC);
 CREATE INDEX idx_batch_log_status  ON batch_upload_log (status);
 
-COMMENT ON TABLE  batch_upload_log           IS '中间表（批次原始数据归档）：数据中台直接写入原始JSON，解析转存过程从中读取并转存到业务表';
+COMMENT ON TABLE  batch_upload_log           IS '中间表（批次原始数据归档）：数据中台直接写入原始JSON，触发器自动解析metadata回填，解析转存过程从中读取并转存到业务表';
 COMMENT ON COLUMN batch_upload_log.id                IS '自增主键，无业务含义';
-COMMENT ON COLUMN batch_upload_log.batch_id          IS '批次ID，格式BATCH_YYYYMMDD_HHMM，解析时从raw_json回填，用于标识一次写入操作';
-COMMENT ON COLUMN batch_upload_log.assessment_cycle  IS '评审周期，如2025-H1，解析时从raw_json回填，冗余存储方便按周期检索';
-COMMENT ON COLUMN batch_upload_log.mode              IS '写入模式：initial（首次全量）/ incremental（增量按人覆盖），解析时从raw_json回填';
+COMMENT ON COLUMN batch_upload_log.batch_id          IS '批次ID，格式BATCH_YYYYMMDD_HHMM，触发器自动从raw_json解析回填，用于标识一次写入操作';
+COMMENT ON COLUMN batch_upload_log.assessment_cycle  IS '评审周期，如2025-H1，触发器自动从raw_json解析回填，冗余存储方便按周期检索';
+COMMENT ON COLUMN batch_upload_log.mode              IS '写入模式：initial（首次全量）/ incremental（增量按人覆盖），触发器自动从raw_json解析回填';
 COMMENT ON COLUMN batch_upload_log.raw_json           IS '完整的原始JSON请求体，MCP传入的request_body字符串，数据中台直接写入此字段，含所有员工标签数据';
 COMMENT ON COLUMN batch_upload_log.status            IS '处理状态：pending=待处理/processing=处理中/success=成功/failed=失败';
 COMMENT ON COLUMN batch_upload_log.error_message      IS '处理失败时的错误信息，用于排查问题';
 COMMENT ON COLUMN batch_upload_log.employee_count     IS '本批次包含的员工人数，解析后回填';
 COMMENT ON COLUMN batch_upload_log.tag_count          IS '本批次生成的标签总数，解析后回填';
 COMMENT ON COLUMN batch_upload_log.created_at         IS '记录创建时间，即中台收到请求的时间';
+
+-- ============================================================
+-- 触发器：自动从 raw_json 解析元数据字段
+-- 说明：BEFORE INSERT，在数据写入前自动解析 raw_json 中的
+--       batch_id、assessment_cycle、mode 三个字段并回填
+--       这样数据中台只需 INSERT raw_json，其他字段自动补全
+-- ============================================================
+CREATE OR REPLACE FUNCTION parse_batch_upload_metadata()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_json JSONB;
+BEGIN
+    -- 只有当 raw_json 有值且元数据字段为空时才解析
+    IF NEW.raw_json IS NOT NULL AND NEW.batch_id IS NULL THEN
+        BEGIN
+            v_json := REPLACE(NEW.raw_json, '\"', '"')::JSONB;
+            NEW.batch_id        := v_json ->> 'batch_id';
+            NEW.assessment_cycle := v_json ->> 'assessment_cycle';
+            NEW.mode             := v_json ->> 'mode';
+        EXCEPTION
+            WHEN OTHERS THEN
+                -- 解析失败不阻断插入，标记状态为 failed
+                NEW.status := 'failed';
+                NEW.error_message := '触发器解析raw_json失败: ' || SQLERRM;
+        END;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_batch_upload_parse_metadata
+    BEFORE INSERT ON batch_upload_log
+    FOR EACH ROW
+    EXECUTE FUNCTION parse_batch_upload_metadata();
 
 
 -- 功能索引（用于写入函数中的 DELETE 操作，按 employee_id + assessment_cycle 快速定位）
