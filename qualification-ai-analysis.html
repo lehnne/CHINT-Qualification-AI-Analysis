@@ -501,11 +501,11 @@
           <td><code>write_employee_tags</code></td>
           <td><code>request_body</code></td>
           <td>写入结果（状态/写入数）</td>
-          <td>将Agent生成的个人能力标签写入数据库。传入完整的JSON请求体字符串（request_body），包含batch_id、assessment_cycle、mode、tags四个字段</td>
+          <td>将Agent生成的个人能力标签写入中间表（先存原始JSON，异步解析转存）。传入完整的JSON请求体字符串（request_body），包含batch_id、assessment_cycle、mode、tags四个字段</td>
         </tr>
       </tbody>
     </table>
-    <p class="callout" style="margin-top: 12px; padding: 10px 14px; background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 4px;"><strong>工具名：</strong><code>write_employee_tags</code> &nbsp;|&nbsp; <strong>用途：</strong>将Agent生成的个人能力标签写入数据库 &nbsp;|&nbsp; <strong>调用方式：</strong>POST</p>
+    <p class="callout" style="margin-top: 12px; padding: 10px 14px; background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 4px;"><strong>工具名：</strong><code>write_employee_tags</code> &nbsp;|&nbsp; <strong>用途：</strong>将Agent生成的个人能力标签写入中间表（先存原始JSON，异步解析转存） &nbsp;|&nbsp; <strong>调用方式：</strong>POST</p>
     </div>
 
     <h3>4.3 MCP工具定义示例（JSON Schema）</h3>
@@ -544,13 +544,13 @@
   }
 }</pre>
 
-    <p class="callout" style="margin-top: 12px; padding: 10px 14px; background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 4px;"><strong>写入工具：</strong><code>write_employee_tags</code> &nbsp;|&nbsp; <strong>用途：</strong>将Agent生成的能力标签写入数据库 &nbsp;|&nbsp; <strong>调用方式：</strong>POST &nbsp;|&nbsp; <strong>参数：</strong><code>request_body</code>（字符串，传入完整的JSON请求体）</p>
+    <p class="callout" style="margin-top: 12px; padding: 10px 14px; background: #fff8e1; border-left: 4px solid #ffc107; border-radius: 4px;"><strong>写入工具：</strong><code>write_employee_tags</code> &nbsp;|&nbsp; <strong>用途：</strong>将Agent生成的能力标签写入中间表（先存原始JSON，异步解析转存） &nbsp;|&nbsp; <strong>调用方式：</strong>POST &nbsp;|&nbsp; <strong>参数：</strong><code>request_body</code>（字符串，传入完整的JSON请求体）</p>
 
     <p>以下为 <code>write_employee_tags</code> 的完整 JSON Schema 定义：</p>
 
     <pre><span class="tag">json</span>{
   "name": "write_employee_tags",
-  "description": "将Step4生成的能力标签写入数据库。必须在调用query_assessment_materials完成数据拉取、维度分类、标签生成之后调用。传入的request_body包含batch_id、assessment_cycle、mode、tags四个字段，其中tags为员工标签数组。写入完成后返回批次统计结果。",
+  "description": "将Step4生成的能力标签写入中间表（先存原始JSON，异步解析转存）。必须在调用query_assessment_materials完成数据拉取、维度分类、标签生成之后调用。传入的request_body包含batch_id、assessment_cycle、mode、tags四个字段，其中tags为员工标签数组。数据中台收到后直接存入中间表batch_upload_log，解析转存由定时任务自动执行。写入完成后返回批次状态。",
   "method": "POST",
   "parameters": {
     "type": "object",
@@ -573,7 +573,7 @@
           "batch_id": { "type": "string", "description": "批次ID" },
           "total_employees": { "type": "integer", "description": "员工总数" },
           "total_tags": { "type": "integer", "description": "标签总数" },
-          "inserted": { "type": "integer", "description": "成功写入数" }
+          "status": { "type": "string", "description": "写入状态：pending（已存入中间表，待解析）" }
         }
       }
     }
@@ -1216,11 +1216,12 @@ pipeline:
     <h3>10.2 数据库设计</h3>
     <p>选<strong>PostgreSQL</strong>作为独立数据库——不依赖任职资格平台、不依赖飞书多维表格。原因很简单：聚合查询需要毫秒级响应，且未来可以接BI工具做可视化。</p>
 
-    <h4>10.2.0 表0：batch_upload_log（批次原始数据归档）</h4>
-    <p><strong>用途：</strong>存储每次写入的完整原始JSON请求体。MCP写入时，先存原始JSON到此表，再解析转存到具体业务表。用于审计追溯和失败重跑。</p>
-    <p>字段：id(BIGSERIAL PK), batch_id(VARCHAR(50) NOT NULL), assessment_cycle(VARCHAR(20) NOT NULL), mode(VARCHAR(20) NOT NULL), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMPTZ DEFAULT NOW())</p>
-    <p>索引：idx_batch_log_batch(batch_id), idx_batch_log_cycle(assessment_cycle DESC), idx_batch_log_status(status)</p>
+    <h4>10.2.0 表0：batch_upload_log（中间表/批次原始数据归档）</h4>
+    <p><strong>用途：</strong>数据中台直接写入原始JSON，解析转存过程从中读取并转存到业务表。用于审计追溯和失败重跑。</p>
+    <p>字段：id(BIGSERIAL PK), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), batch_id(VARCHAR(50) - 解析时回填), assessment_cycle(VARCHAR(20) - 解析时回填), mode(VARCHAR(20) - 解析时回填), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMPTZ DEFAULT NOW())</p>
+    <p>索引：idx_batch_log_status(status), idx_batch_log_batch(batch_id), idx_batch_log_cycle(assessment_cycle DESC)</p>
     <p>status取值：pending→processing→success/failed</p>
+    <p>写入方式：数据中台执行 INSERT INTO batch_upload_log (raw_json, status) VALUES (${request_body}, 'pending')，不解析、不转存</p>
 
     <h4>10.2.1 表1：employee_capability_tags（个人能力标签）</h4>
     <p>这是最核心的表。<strong>每行 = 一个人在某次评审中，某个维度下的一个标签。</strong>比如张三在"技术专长"维度下有"架构设计"和"高并发优化"两个标签，就占两行。如果张三下次评审又有新标签，会新增行（覆盖同周期）。</p>
@@ -1326,11 +1327,11 @@ pipeline:
     <h4>10.2.5 表关系一览</h4>
     <div class="schema">
       ┌─────────────────────────────────────────────────────────────┐
-      │  batch_upload_log（归档表 - 审计追溯）                        │
-      │  存储每次MCP写入的完整原始JSON请求体                          │
-      │  PK: id  |  IDX: batch_id                                    │
+      │  batch_upload_log（中间表 - 接收原始JSON）                    │
+      │  数据中台直接写入raw_json，定时解析转存到业务表                │
+      │  PK: id  |  IDX: status（pending记录检索）                    │
       └──────────────────────┬──────────────────────────────────────┘
-                             │ batch_id → 关联业务表追溯
+                             │ 定时任务：CALL process_batch_upload(null)
                              ▼
       ┌─────────────────────────────────────────────────────────────┐
       │  dimension_schema（配置表 - 元数据）                         │
@@ -1389,7 +1390,7 @@ pipeline:
             <td><code>/api/v1/tags/employee</code></td>
             <td><strong>POST</strong></td>
             <td>✅</td>
-            <td>批量写入/覆盖个人能力标签。MCP工具传入request_body，服务端按"先删后插"策略保证幂等性</td>
+            <td>批量写入/覆盖个人能力标签。MCP工具传入request_body，数据中台先存入中间表batch_upload_log，再通过定时任务异步解析转存到employee_capability_tags</td>
           </tr>
           <tr>
             <td><code>/api/v1/tags/gold</code></td>
@@ -1419,10 +1420,10 @@ pipeline:
       </table>
     </div>
 
-    <p><strong>为什么用POST而不是PUT？</strong>写入接口使用 POST，因为 MCP 工具的调用方式固定为 POST。数据中台收到请求后通过"先删后插"策略保证幂等性——对同一个人重复调用不会产生重复数据。</p>
+    <p><strong>为什么用POST而不是PUT？</strong>写入接口使用 POST，因为 MCP 工具的调用方式固定为 POST。数据中台收到请求后先存入中间表（简单 INSERT），解析转存由定时任务执行，通过"先删后插"策略保证幂等性——对同一个人重复调用不会产生重复数据。</p>
 
     <h4>核心写入接口：POST /api/v1/tags/employee</h4>
-    <p class="sub-desc">MCP 工具 <code>write_employee_tags</code> 调用此接口，参数 <code>request_body</code> 为 JSON 字符串，数据中台直接传给 SQL，函数内部用 <code>::JSONB</code> 自动转换。</p>
+    <p class="sub-desc">MCP 工具 <code>write_employee_tags</code> 调用此接口，参数 <code>request_body</code> 为 JSON 字符串，数据中台直接存入中间表 <code>batch_upload_log.raw_json</code> 字段，不解析、不转存。解析转存由定时任务 <code>CALL process_batch_upload(null)</code> 自动执行。</p>
     <pre><span class="tag">http</span>POST /api/v1/tags/employee
 Content-Type: application/json
 
@@ -2119,34 +2120,23 @@ WHERE position_family = :position_family
   AND is_active = TRUE
 ORDER BY sort_order;</pre>
 
-    <h4>Part E：写入接口 SQL（PostgreSQL UPSERT）</h4>
-    <p>写入 AI 分析系统数据库，使用 <strong>UPSERT</strong> 保证幂等。</p>
+    <h4>Part E：写入接口 SQL（PostgreSQL 中间表 + 异步解析转存）</h4>
+    <p>写入采用两步走策略：<strong>① 数据中台直接 INSERT 原始 JSON 到中间表 → ② 定时任务解析转存到业务表</strong>。这样写入链路简单（一条 INSERT），解析失败可重试，不影响写入方。</p>
 
-    <h4>E1. 写入个人能力标签</h4>
-    <p>以下 SQL 为数据中台后端实际调用的 UPSERT 函数。Agent 通过 <strong>write_employee_tags</strong> MCP 工具调用此写入接口，数据中台收到请求后执行"先删后插"策略保证幂等性。</p>
-    <pre><span class="tag">sql</span>INSERT INTO employee_capability_tags (
-    employee_id, employee_name, position_family_code, position_family_name,
-    original_position, original_grade, target_grade, assessment_cycle,
-    dimension, tag_name, score, confidence, evidence, source_materials,
-    batch_id, created_at, updated_at
-) VALUES (
-    :employee_id, :employee_name, :position_family_code, :position_family_name,
-    :original_position, :original_grade, :target_grade, :assessment_cycle,
-    :dimension, :tag_name, :score, :confidence, :evidence, :source_materials::jsonb,
-    :batch_id, NOW(), NOW()
-)
-ON CONFLICT (employee_id, assessment_cycle, dimension, tag_name) 
-DO UPDATE SET
-    score = EXCLUDED.score,
-    confidence = EXCLUDED.confidence,
-    evidence = EXCLUDED.evidence,
-    source_materials = EXCLUDED.source_materials,
-    original_grade = EXCLUDED.original_grade,
-    target_grade = EXCLUDED.target_grade,
-    batch_id = EXCLUDED.batch_id,
-    updated_at = NOW();</pre>
+    <h4>E1. 数据中台写入中间表</h4>
+    <p>数据中台收到 HTTP POST 请求后，只需执行一条 INSERT，将完整的 request_body 字符串存入 <code>batch_upload_log.raw_json</code>：</p>
+    <pre><span class="tag">sql</span>INSERT INTO batch_upload_log (raw_json, status)
+VALUES (${request_body}, 'pending');</pre>
 
-    <h4>E2. 写入金标签</h4>
+    <h4>E2. 解析转存到业务表</h4>
+    <p>定时任务执行以下存储过程，从 batch_upload_log 读取 pending 记录，解析 JSON 并转存到 employee_capability_tags：</p>
+    <pre><span class="tag">sql</span>-- 处理所有 pending 记录
+CALL process_batch_upload(null);
+
+-- 或处理指定记录
+CALL process_batch_upload(123);</pre>
+
+    <h4>E3. 写入金标签</h4>
     <pre><span class="tag">sql</span>INSERT INTO gold_tags (
     position_family, grade, dimension, tag_name,
     distinction_coef, penetration_rate, 
@@ -2257,19 +2247,19 @@ DROP TABLE IF EXISTS _failed_employees;</pre>
 
 CREATE TABLE batch_upload_log (
     id BIGSERIAL PRIMARY KEY,
-    batch_id VARCHAR(50) NOT NULL,
-    assessment_cycle VARCHAR(20) NOT NULL,
-    mode VARCHAR(20) NOT NULL,
     raw_json TEXT NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    batch_id VARCHAR(50),
+    assessment_cycle VARCHAR(20),
+    mode VARCHAR(20),
     error_message TEXT,
     employee_count INT DEFAULT 0,
     tag_count INT DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX idx_batch_log_status ON batch_upload_log (status);
 CREATE INDEX idx_batch_log_batch ON batch_upload_log (batch_id);
 CREATE INDEX idx_batch_log_cycle ON batch_upload_log (assessment_cycle DESC);
-CREATE INDEX idx_batch_log_status ON batch_upload_log (status);
 
 CREATE TABLE employee_capability_tags (
     id BIGSERIAL PRIMARY KEY,

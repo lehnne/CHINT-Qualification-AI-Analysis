@@ -56,7 +56,7 @@ skill                   — 专业能力（仅关键成果表有）
 
 **工具名**：`write_employee_tags`
 
-**功能**：将 Step 4 生成的个人能力标签写入数据库。必须在调用 `query_assessment_materials` 完成数据拉取、维度分类、标签生成之后调用。
+**功能**：将 Step 4 生成的个人能力标签写入数据库（先存入中间表，解析转存异步执行）。必须在调用 `query_assessment_materials` 完成数据拉取、维度分类、标签生成之后调用。
 
 **调用方式**：POST
 
@@ -140,14 +140,15 @@ skill                   — 专业能力（仅关键成果表有）
     "batch_id": "BATCH_20250714_0001",
     "total_employees": 1,
     "total_tags": 3,
-    "inserted": 3
+    "status": "pending"
   }
 }
 ```
 
-**写入策略说明**：
-- `initial` 模式：清空整个评审周期的所有旧标签，再全部写入（首次上线用）
-- `incremental` 模式：对每个人先删旧标签再插新标签，不影响其他人（日常增量用）
+**写入流程说明**：
+- 调用 `write_employee_tags` 后，数据会先存入中间表 `batch_upload_log`，状态为 `pending`
+- 数据库会通过定时任务（每5分钟）自动解析转存到 `employee_capability_tags` 业务表
+- 也可以在写入后手动触发解析（非必须，系统会自动处理）
 - 重复调用同一个人是幂等的——第二次跑会先删掉第一次的旧标签，再插新标签，不会累积
 
 ---
@@ -214,9 +215,11 @@ skill                   — 专业能力（仅关键成果表有）
 1. 组装完整的请求体 JSON（包含所有人员的标签数据）
 2. 将整个 JSON 转换成字符串（JSON.stringify），作为 `request_body` 参数传入，调用 `write_employee_tags` 工具
 
-   > 注意：`request_body` 是 **string 类型**，传的是字符串不是 JSON 对象。数据中台收到后直接传给 SQL，PostgreSQL 函数内部先用 `REPLACE` 去掉 `\"` 转义，再 `::JSONB` 自动转换。
+   > 注意：`request_body` 是 **string 类型**，传的是字符串不是 JSON 对象。数据中台收到后直接存入中间表 `batch_upload_log`，解析转存由定时任务自动执行。
 
 3. 根据返回结果，用一句话告知用户处理结果
+
+> 注意：写入后数据会先存入中间表，解析转存由定时任务自动执行，Agent 不需要等待解析完成。
 
 **示例对话结尾**：
 

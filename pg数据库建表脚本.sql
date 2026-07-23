@@ -1,7 +1,7 @@
 -- ============================================================
 -- 任职资格 AI 分析系统 · PostgreSQL 数据库建表脚本
 -- 数据库：PostgreSQL（需开启 pgvector 扩展用于向量检索）
--- 共 4 张表：employee_capability_tags / gold_tags
+-- 共 5 张表：batch_upload_log / employee_capability_tags / gold_tags
 --           position_benchmarks / dimension_schema
 -- ============================================================
 
@@ -16,15 +16,15 @@
 -- ============================================================
 CREATE TABLE batch_upload_log (
     id                  BIGSERIAL       PRIMARY KEY,
-    batch_id            VARCHAR(50)     NOT NULL,       -- 批次ID，如 BATCH_20250714_0001
-    assessment_cycle    VARCHAR(20)     NOT NULL,       -- 评审周期，如 2025-H1
-    mode                VARCHAR(20)     NOT NULL,       -- 写入模式：initial / incremental
-    raw_json            TEXT            NOT NULL,       -- 完整的原始 JSON 请求体字符串（未转义前的原始内容）
+    raw_json            TEXT            NOT NULL,       -- 完整的原始 JSON 请求体字符串（未转义前的原始内容），数据中台直接写入此字段
     status              VARCHAR(20)     NOT NULL        DEFAULT 'pending',  -- 处理状态：pending / processing / success / failed
-    error_message       TEXT,                           -- 处理失败时的错误信息
-    employee_count      INT             DEFAULT 0,      -- 本批次包含的员工数
-    tag_count           INT             DEFAULT 0,      -- 本批次生成的标签总数
-    created_at          TIMESTAMPTZ     DEFAULT NOW()   -- 写入时间
+    batch_id            VARCHAR(50),                   -- 批次ID，如 BATCH_20250714_0001（解析时回填）
+    assessment_cycle    VARCHAR(20),                   -- 评审周期，如 2025-H1（解析时回填）
+    mode                VARCHAR(20),                   -- 写入模式：initial / incremental（解析时回填）
+    error_message       TEXT,                          -- 处理失败时的错误信息
+    employee_count      INT             DEFAULT 0,     -- 本批次包含的员工数，解析后回填
+    tag_count           INT             DEFAULT 0,     -- 本批次生成的标签总数，解析后回填
+    created_at          TIMESTAMPTZ     DEFAULT NOW()  -- 写入时间
 
     -- 没有唯一约束，同一个 batch_id 可能重跑多次，每次都会有一条记录
 );
@@ -33,12 +33,12 @@ CREATE INDEX idx_batch_log_batch   ON batch_upload_log (batch_id);
 CREATE INDEX idx_batch_log_cycle   ON batch_upload_log (assessment_cycle DESC);
 CREATE INDEX idx_batch_log_status  ON batch_upload_log (status);
 
-COMMENT ON TABLE  batch_upload_log           IS '批次原始数据归档表：存储每次写入的完整原始JSON请求体，用于审计、追溯和重跑';
+COMMENT ON TABLE  batch_upload_log           IS '中间表（批次原始数据归档）：数据中台直接写入原始JSON，解析转存过程从中读取并转存到业务表';
 COMMENT ON COLUMN batch_upload_log.id                IS '自增主键，无业务含义';
-COMMENT ON COLUMN batch_upload_log.batch_id          IS '批次ID，格式BATCH_YYYYMMDD_HHMM，用于标识一次写入操作';
-COMMENT ON COLUMN batch_upload_log.assessment_cycle  IS '评审周期，如2025-H1，冗余存储方便按周期检索';
-COMMENT ON COLUMN batch_upload_log.mode              IS '写入模式：initial（首次全量）/ incremental（增量按人覆盖）';
-COMMENT ON COLUMN batch_upload_log.raw_json           IS '完整的原始JSON请求体，MCP传入的request_body字符串，含所有员工标签数据';
+COMMENT ON COLUMN batch_upload_log.batch_id          IS '批次ID，格式BATCH_YYYYMMDD_HHMM，解析时从raw_json回填，用于标识一次写入操作';
+COMMENT ON COLUMN batch_upload_log.assessment_cycle  IS '评审周期，如2025-H1，解析时从raw_json回填，冗余存储方便按周期检索';
+COMMENT ON COLUMN batch_upload_log.mode              IS '写入模式：initial（首次全量）/ incremental（增量按人覆盖），解析时从raw_json回填';
+COMMENT ON COLUMN batch_upload_log.raw_json           IS '完整的原始JSON请求体，MCP传入的request_body字符串，数据中台直接写入此字段，含所有员工标签数据';
 COMMENT ON COLUMN batch_upload_log.status            IS '处理状态：pending=待处理/processing=处理中/success=成功/failed=失败';
 COMMENT ON COLUMN batch_upload_log.error_message      IS '处理失败时的错误信息，用于排查问题';
 COMMENT ON COLUMN batch_upload_log.employee_count     IS '本批次包含的员工人数，解析后回填';
@@ -258,3 +258,13 @@ INSERT INTO dimension_schema (position_family_code, position_family_name, dimens
 ('GL0001', '管理类',     '资源协调',   '考察跨部门资源整合和协调能力', 3, '协调4个部门资源完成重大项目'),
 ('GL0001', '管理类',     '绩效驱动',   '考察目标设定和绩效管理能力', 4, '建立OKR体系、团队目标达成率120%'),
 ('GL0001', '管理类',     '人才培养',   '考察人才梯队建设和培养能力', 5, '培养2名管理者、团队晋升率30%');
+
+
+-- ============================================================
+-- 如果之前已按旧表结构创建了 batch_upload_log，执行以下 ALTER 语句迁移
+-- 注意：仅迁移结构，已有数据不受影响
+-- ============================================================
+-- ALTER TABLE batch_upload_log
+--     ALTER COLUMN batch_id         DROP NOT NULL,
+--     ALTER COLUMN assessment_cycle DROP NOT NULL,
+--     ALTER COLUMN mode             DROP NOT NULL;
