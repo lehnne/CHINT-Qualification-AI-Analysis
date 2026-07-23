@@ -1866,7 +1866,7 @@ SELECT
     R.OldPostName         AS original_position,
     R.OldPostLev          AS original_grade,
     R.PostCode            AS position_family_code,
-    R.PostName            AS position_family_name,
+    PT.PostName           AS position_family_name,
     R.LevCode             AS target_grade,
     R.RADate              AS assessment_date,
     R.ReviewLevel         AS result,
@@ -1881,6 +1881,8 @@ SELECT
 FROM TB_ZC_ReviewApply R
 LEFT JOIN TB_ZC_EmplyOtherInfo E 
     ON R.EmplySFCode = E.EmplySFCode AND E.Deleted = 0
+LEFT JOIN TB_ZC_Post PT
+    ON R.PostCode = PT.PostCode AND PT.Deleted = 0
 LEFT JOIN TB_ZC_WorkProduct W 
     ON R.EmplySFCode = W.EmplySFCode AND W.Deleted = 0
 WHERE R.Status IN (4, 5)
@@ -1899,7 +1901,7 @@ SELECT
     R.OldPostName         AS original_position,
     R.OldPostLev          AS original_grade,
     R.PostCode            AS position_family_code,
-    R.PostName            AS position_family_name,
+    PT.PostName           AS position_family_name,
     R.LevCode             AS target_grade,
     R.RADate              AS assessment_date,
     R.ReviewLevel         AS result,
@@ -1914,6 +1916,8 @@ SELECT
 FROM TB_ZC_ReviewApply R
 LEFT JOIN TB_ZC_EmplyOtherInfo E 
     ON R.EmplySFCode = E.EmplySFCode AND E.Deleted = 0
+LEFT JOIN TB_ZC_Post PT
+    ON R.PostCode = PT.PostCode AND PT.Deleted = 0
 LEFT JOIN TB_ZC_ProjectInfo P 
     ON R.EmplySFCode = P.EmplySFCode AND P.Deleted = 0
 WHERE R.Status IN (4, 5)

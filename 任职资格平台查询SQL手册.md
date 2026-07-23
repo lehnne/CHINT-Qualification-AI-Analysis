@@ -9,7 +9,8 @@
 
 | 表名 | 说明 | 核心字段 |
 |------|------|---------|
-| `TB_ZC_ReviewApply` | 职称申报申请表头 | RACode(申报编号), RNCode(评审活动ID), EmplySFCode(工号), PostCode(岗位序列代码), LevCode(申报职级), ReviewLevel(审批结果), Status(状态: 4=通过/5=不通过), PostName(岗位序列名称) |
+| `TB_ZC_Post` | 岗位基础信息表（码表） | PostCode(岗位代号), PostName(岗位名称) |
+| `TB_ZC_ReviewApply` | 职称申报申请表头 | RACode(申报编号), RNCode(评审活动ID), EmplySFCode(工号), PostCode(岗位序列代码), LevCode(申报职级), ReviewLevel(审批结果), Status(状态: 4=通过/5=不通过) |
 | `TB_ZC_EmplyOtherInfo` | 人员其他信息表 | EmplySFCode(工号), EmplyName(姓名), PostLev(职级) |
 | `TB_ZC_WorkProduct` | 关键成果表 | EmplySFCode(集团工号), KeyEvents(关键事件), EventDes(事件描述), WorkAchievements(工作成果), Skill(专业能力), TypeRole(所扮角色) |
 | `TB_ZC_ProjectInfo` | 主导或参与项目情况表 | EmplySFCode(集团工号), ProjectName(项目名称), ProjectDesc(项目介绍), ProjectRole(项目角色), ProjectResult(项目贡献度描述) |
@@ -64,7 +65,7 @@ SELECT
     R.OldPostName         AS original_position,
     R.OldPostLev          AS original_grade,
     R.PostCode            AS position_family_code,
-    R.PostName            AS position_family_name,
+    PT.PostName           AS position_family_name,
     R.LevCode             AS target_grade,
     R.RADate              AS assessment_date,
     R.ReviewLevel         AS result,
@@ -79,6 +80,8 @@ SELECT
 FROM TB_ZC_ReviewApply R
 LEFT JOIN TB_ZC_EmplyOtherInfo E 
     ON R.EmplySFCode = E.EmplySFCode AND E.Deleted = 0
+LEFT JOIN TB_ZC_Post PT
+    ON R.PostCode = PT.PostCode AND PT.Deleted = 0
 LEFT JOIN TB_ZC_WorkProduct W 
     ON R.EmplySFCode = W.EmplySFCode AND W.Deleted = 0
 WHERE R.Status IN (4, 5)
@@ -97,7 +100,7 @@ SELECT
     R.OldPostName         AS original_position,
     R.OldPostLev          AS original_grade,
     R.PostCode            AS position_family_code,
-    R.PostName            AS position_family_name,
+    PT.PostName           AS position_family_name,
     R.LevCode             AS target_grade,
     R.RADate              AS assessment_date,
     R.ReviewLevel         AS result,
@@ -112,6 +115,8 @@ SELECT
 FROM TB_ZC_ReviewApply R
 LEFT JOIN TB_ZC_EmplyOtherInfo E 
     ON R.EmplySFCode = E.EmplySFCode AND E.Deleted = 0
+LEFT JOIN TB_ZC_Post PT
+    ON R.PostCode = PT.PostCode AND PT.Deleted = 0
 LEFT JOIN TB_ZC_ProjectInfo P 
     ON R.EmplySFCode = P.EmplySFCode AND P.Deleted = 0
 WHERE R.Status IN (4, 5)
@@ -236,7 +241,7 @@ FETCH NEXT @PageSize ROWS ONLY;
 | `employee_id` | `TB_ZC_ReviewApply.EmplySFCode` | 员工工号 |
 | `employee_name` | `TB_ZC_EmplyOtherInfo.EmplyName` | 员工姓名 |
 | `position_family_code` | `TB_ZC_ReviewApply.PostCode` | 岗位序列代码 |
-| `position_family_name` | `TB_ZC_ReviewApply.PostName` | 岗位序列名称 |
+| `position_family_name` | `TB_ZC_Post.PostName`（LEFT JOIN TB_ZC_ReviewApply.PostCode） | 岗位序列名称 |
 | `target_grade` | `TB_ZC_ReviewApply.LevCode` | 申报职级 |
 | `result` | `TB_ZC_ReviewApply.ReviewLevel` | 审批结果：审核通过/审核不通过 |
 | `status` | `TB_ZC_ReviewApply.Status` | 状态码：4=通过，5=不通过 |
