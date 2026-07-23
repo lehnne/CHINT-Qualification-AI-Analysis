@@ -108,6 +108,127 @@ CREATE TRIGGER trg_batch_upload_parse_metadata
     FOR EACH ROW
     EXECUTE FUNCTION parse_batch_upload_metadata();
 
+-- ============================================================
+-- 触发器：自动将 tag 内容转存到员工标签表
+-- 说明：AFTER INSERT，在数据写入后自动解析 raw_json 中的 tags
+--       遍历人员→维度→标签，将展平后的数据写入 employee_capability_tags
+--       按 mode 策略处理旧数据（initial=清空整周期，incremental=按人覆盖）
+-- ============================================================
+CREATE OR REPLACE FUNCTION process_batch_upload_trigger()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_payload         JSONB;
+    v_batch_id        VARCHAR(50);
+    v_assessment_cycle VARCHAR(20);
+    v_mode             VARCHAR(20);
+    v_emp_rec          RECORD;
+    v_dim_key          TEXT;
+    v_tag_rec          RECORD;
+    v_employee_count   INT := 0;
+    v_tag_count        INT := 0;
+BEGIN
+    -- 只处理 status = 'pending' 的记录
+    IF NEW.status = 'pending' THEN
+        v_payload := REPLACE(NEW.raw_json, '\"', '"')::JSONB;
+
+        v_batch_id        := v_payload ->> 'batch_id';
+        v_assessment_cycle := v_payload ->> 'assessment_cycle';
+        v_mode             := v_payload ->> 'mode';
+
+        -- 更新状态为 processing
+        UPDATE batch_upload_log SET status = 'processing' WHERE id = NEW.id;
+
+        -- mode = 'initial'：清空整个评审周期的旧数据
+        IF v_mode = 'initial' THEN
+            DELETE FROM employee_capability_tags
+            WHERE assessment_cycle = v_assessment_cycle;
+        END IF;
+
+        -- 遍历 tags 数组，解析转存
+        FOR v_emp_rec IN
+            SELECT * FROM JSONB_TO_RECORDSET(v_payload -> 'tags')
+              AS x(
+                  employee_id          VARCHAR(50),
+                  employee_name        VARCHAR(50),
+                  position_family_code VARCHAR(20),
+                  position_family_name VARCHAR(50),
+                  original_position    VARCHAR(100),
+                  original_grade       VARCHAR(20),
+                  target_grade         VARCHAR(20),
+                  dimension_tags       JSONB
+              )
+        LOOP
+            v_employee_count := v_employee_count + 1;
+
+            -- 对每个人，先删掉该评审周期下的旧标签，再插新的
+            IF v_mode = 'incremental' THEN
+                DELETE FROM employee_capability_tags
+                WHERE employee_id = v_emp_rec.employee_id
+                  AND assessment_cycle = v_assessment_cycle;
+            END IF;
+
+            -- 遍历 dimension_tags 的每个维度
+            FOR v_dim_key IN
+                SELECT JSONB_OBJECT_KEYS(v_emp_rec.dimension_tags)
+            LOOP
+                -- 遍历该维度下的标签数组
+                FOR v_tag_rec IN
+                    SELECT * FROM JSONB_TO_RECORDSET(
+                        v_emp_rec.dimension_tags -> v_dim_key
+                    ) AS y(
+                        tag_name         VARCHAR(100),
+                        score            SMALLINT,
+                        confidence       DECIMAL(3,2),
+                        evidence         TEXT,
+                        source_materials JSONB
+                    )
+                LOOP
+                    v_tag_count := v_tag_count + 1;
+
+                    INSERT INTO employee_capability_tags (
+                        employee_id,          employee_name,
+                        position_family_code, position_family_name,
+                        original_position,    original_grade,
+                        target_grade,         assessment_cycle,
+                        dimension,            tag_name,
+                        score,                confidence,
+                        evidence,             source_materials,
+                        batch_id,             created_at,
+                        updated_at
+                    ) VALUES (
+                        v_emp_rec.employee_id,          v_emp_rec.employee_name,
+                        v_emp_rec.position_family_code, v_emp_rec.position_family_name,
+                        v_emp_rec.original_position,    v_emp_rec.original_grade,
+                        v_emp_rec.target_grade,         v_assessment_cycle,
+                        v_dim_key,                      v_tag_rec.tag_name,
+                        v_tag_rec.score,                v_tag_rec.confidence,
+                        v_tag_rec.evidence,             v_tag_rec.source_materials,
+                        v_batch_id,                     NOW(),
+                        NOW()
+                    );
+                END LOOP;
+            END LOOP;
+        END LOOP;
+
+        -- 更新成功状态及统计
+        UPDATE batch_upload_log
+        SET status = 'success',
+            employee_count = v_employee_count,
+            tag_count = v_tag_count
+        WHERE id = NEW.id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_batch_upload_process_tags
+    AFTER INSERT ON batch_upload_log
+    FOR EACH ROW
+    EXECUTE FUNCTION process_batch_upload_trigger();
+
 
 -- 功能索引（用于写入函数中的 DELETE 操作，按 employee_id + assessment_cycle 快速定位）
 CREATE INDEX IF NOT EXISTS idx_emp_tags_delete

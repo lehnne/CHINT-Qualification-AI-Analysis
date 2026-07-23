@@ -1220,7 +1220,7 @@ pipeline:
     <p><strong>用途：</strong>数据中台直接写入原始JSON，触发器自动解析metadata回填。用于审计追溯和失败重跑。</p>
     <p>字段：id(BIGSERIAL PK), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), batch_id(VARCHAR(50) - 触发器自动解析回填), assessment_cycle(VARCHAR(20) - 触发器自动解析回填), mode(VARCHAR(20) - 触发器自动解析回填), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMP DEFAULT NOW())</p>
     <p>索引：idx_batch_log_status(status), idx_batch_log_batch(batch_id), idx_batch_log_cycle(assessment_cycle DESC)</p>
-    <p>触发器：trg_batch_upload_parse_metadata — BEFORE INSERT，自动从 raw_json 解析 batch_id/assessment_cycle/mode/employee_count/tag_count 回填</p>
+    <p>触发器：trg_batch_upload_parse_metadata — BEFORE INSERT，自动从 raw_json 解析 batch_id/assessment_cycle/mode/employee_count/tag_count 回填；trg_batch_upload_process_tags — AFTER INSERT，负责解析转存标签数据到 employee_capability_tags</p>
     <p>status取值：pending→processing→success/failed</p>
     <p>写入方式：数据中台执行 INSERT INTO batch_upload_log (raw_json, status) VALUES (${request_body}, 'pending')，不解析、不转存</p>
 
@@ -2305,6 +2305,74 @@ END; $$;
 CREATE TRIGGER trg_batch_upload_parse_metadata
     BEFORE INSERT ON batch_upload_log
     FOR EACH ROW EXECUTE FUNCTION parse_batch_upload_metadata();
+
+CREATE OR REPLACE FUNCTION process_batch_upload_trigger()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+    v_payload         JSONB;
+    v_batch_id        VARCHAR(50);
+    v_assessment_cycle VARCHAR(20);
+    v_mode             VARCHAR(20);
+    v_emp_rec          RECORD;
+    v_dim_key          TEXT;
+    v_tag_rec          RECORD;
+    v_employee_count   INT := 0;
+    v_tag_count        INT := 0;
+BEGIN
+    IF NEW.status = 'pending' THEN
+        v_payload := REPLACE(NEW.raw_json, '\"', '"')::JSONB;
+        v_batch_id := v_payload ->> 'batch_id';
+        v_assessment_cycle := v_payload ->> 'assessment_cycle';
+        v_mode := v_payload ->> 'mode';
+        UPDATE batch_upload_log SET status = 'processing' WHERE id = NEW.id;
+        IF v_mode = 'initial' THEN
+            DELETE FROM employee_capability_tags WHERE assessment_cycle = v_assessment_cycle;
+        END IF;
+        FOR v_emp_rec IN
+            SELECT * FROM JSONB_TO_RECORDSET(v_payload -> 'tags')
+              AS x(employee_id VARCHAR(50), employee_name VARCHAR(50),
+                  position_family_code VARCHAR(20), position_family_name VARCHAR(50),
+                  original_position VARCHAR(100), original_grade VARCHAR(20),
+                  target_grade VARCHAR(20), dimension_tags JSONB)
+        LOOP
+            v_employee_count := v_employee_count + 1;
+            IF v_mode = 'incremental' THEN
+                DELETE FROM employee_capability_tags
+                WHERE employee_id = v_emp_rec.employee_id AND assessment_cycle = v_assessment_cycle;
+            END IF;
+            FOR v_dim_key IN SELECT JSONB_OBJECT_KEYS(v_emp_rec.dimension_tags) LOOP
+                FOR v_tag_rec IN SELECT * FROM JSONB_TO_RECORDSET(
+                    v_emp_rec.dimension_tags -> v_dim_key
+                ) AS y(tag_name VARCHAR(100), score SMALLINT,
+                       confidence DECIMAL(3,2), evidence TEXT, source_materials JSONB)
+                LOOP
+                    v_tag_count := v_tag_count + 1;
+                    INSERT INTO employee_capability_tags (
+                        employee_id, employee_name, position_family_code, position_family_name,
+                        original_position, original_grade, target_grade, assessment_cycle,
+                        dimension, tag_name, score, confidence, evidence, source_materials,
+                        batch_id, created_at, updated_at
+                    ) VALUES (
+                        v_emp_rec.employee_id, v_emp_rec.employee_name,
+                        v_emp_rec.position_family_code, v_emp_rec.position_family_name,
+                        v_emp_rec.original_position, v_emp_rec.original_grade,
+                        v_emp_rec.target_grade, v_assessment_cycle,
+                        v_dim_key, v_tag_rec.tag_name, v_tag_rec.score, v_tag_rec.confidence,
+                        v_tag_rec.evidence, v_tag_rec.source_materials,
+                        v_batch_id, NOW(), NOW()
+                    );
+                END LOOP;
+            END LOOP;
+        END LOOP;
+        UPDATE batch_upload_log
+        SET status = 'success', employee_count = v_employee_count, tag_count = v_tag_count
+        WHERE id = NEW.id;
+    END IF;
+    RETURN NEW;
+END; $$;
+CREATE TRIGGER trg_batch_upload_process_tags
+    AFTER INSERT ON batch_upload_log
+    FOR EACH ROW EXECUTE FUNCTION process_batch_upload_trigger();
 
 CREATE TABLE employee_capability_tags (
     id BIGSERIAL PRIMARY KEY,
