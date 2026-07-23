@@ -24,7 +24,7 @@ CREATE TABLE batch_upload_log (
     error_message       TEXT,                          -- 处理失败时的错误信息
     employee_count      INT             DEFAULT 0,     -- 本批次包含的员工数，解析后回填
     tag_count           INT             DEFAULT 0,     -- 本批次生成的标签总数，解析后回填
-    created_at          TIMESTAMPTZ     DEFAULT NOW()  -- 写入时间
+    created_at          TIMESTAMP     DEFAULT NOW()  -- 写入时间
 
     -- 没有唯一约束，同一个 batch_id 可能重跑多次，每次都会有一条记录
 );
@@ -114,8 +114,8 @@ CREATE TABLE employee_capability_tags (
     evidence            TEXT,                          -- 生成该标签的依据摘要（来自具体材料中的哪段描述）
     source_materials    JSONB,                         -- 支撑该标签的材料ID列表，格式：["MAT_001","MAT_002"]
     batch_id            VARCHAR(50)     NOT NULL,       -- 写入批次ID，用于追溯本次Pipeline的运行批次
-    created_at          TIMESTAMPTZ     DEFAULT NOW(), -- 创建时间
-    updated_at          TIMESTAMPTZ     DEFAULT NOW(), -- 更新时间
+    created_at          TIMESTAMP     DEFAULT NOW(), -- 创建时间
+    updated_at          TIMESTAMP     DEFAULT NOW(), -- 更新时间
 
     -- 唯一约束：同一人同一评审周期同一维度下，标签名称唯一，确保UPSERT幂等
     UNIQUE (employee_id, assessment_cycle, dimension, tag_name)
@@ -166,7 +166,7 @@ CREATE TABLE gold_tags (
     is_core             BOOLEAN         DEFAULT FALSE,  -- 是否核心金标签（判定条件：D≥0.30 且 P≥0.50）
     is_verified         BOOLEAN         DEFAULT FALSE,  -- HRBP是否已人工确认此金标签生效
     batch_id            VARCHAR(50)     NOT NULL,       -- 写入批次ID，用于追溯Pipeline运行记录
-    updated_at          TIMESTAMPTZ     DEFAULT NOW(), -- 更新时间
+    updated_at          TIMESTAMP     DEFAULT NOW(), -- 更新时间
 
     -- 唯一约束：同一岗位序列+职级+维度+标签名，不会重复
     UNIQUE (position_family_code, grade, dimension, tag_name)

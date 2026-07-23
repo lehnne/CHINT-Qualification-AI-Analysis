@@ -1218,7 +1218,7 @@ pipeline:
 
     <h4>10.2.0 表0：batch_upload_log（中间表/批次原始数据归档）</h4>
     <p><strong>用途：</strong>数据中台直接写入原始JSON，触发器自动解析metadata回填。用于审计追溯和失败重跑。</p>
-    <p>字段：id(BIGSERIAL PK), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), batch_id(VARCHAR(50) - 触发器自动解析回填), assessment_cycle(VARCHAR(20) - 触发器自动解析回填), mode(VARCHAR(20) - 触发器自动解析回填), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMPTZ DEFAULT NOW())</p>
+    <p>字段：id(BIGSERIAL PK), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), batch_id(VARCHAR(50) - 触发器自动解析回填), assessment_cycle(VARCHAR(20) - 触发器自动解析回填), mode(VARCHAR(20) - 触发器自动解析回填), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMP DEFAULT NOW())</p>
     <p>索引：idx_batch_log_status(status), idx_batch_log_batch(batch_id), idx_batch_log_cycle(assessment_cycle DESC)</p>
     <p>触发器：trg_batch_upload_parse_metadata — BEFORE INSERT，自动从 raw_json 解析 batch_id/assessment_cycle/mode 回填</p>
     <p>status取值：pending→processing→success/failed</p>
@@ -1246,8 +1246,8 @@ pipeline:
           <tr><td><code>evidence</code></td><td>TEXT</td><td>—</td><td>生成该标签的依据（来自哪段材料）</td></tr>
           <tr><td><code>source_materials</code></td><td>JSONB</td><td>—</td><td>支撑材料ID列表：["MAT_001","MAT_002"]</td></tr>
           <tr><td><code>batch_id</code></td><td>VARCHAR(50)</td><td>✅</td><td>写入批次ID，用于追溯</td></tr>
-          <tr><td><code>created_at</code></td><td>TIMESTAMPTZ</td><td>—</td><td>创建时间</td></tr>
-          <tr><td><code>updated_at</code></td><td>TIMESTAMPTZ</td><td>—</td><td>更新时间</td></tr>
+          <tr><td><code>created_at</code></td><td>TIMESTAMP</td><td>—</td><td>创建时间</td></tr>
+          <tr><td><code>updated_at</code></td><td>TIMESTAMP</td><td>—</td><td>更新时间</td></tr>
         </tbody>
       </table>
     </div>
@@ -1275,7 +1275,7 @@ pipeline:
           <tr><td><code>is_core</code></td><td>BOOLEAN</td><td>—</td><td>是否核心金标签（D≥0.30 且 P≥0.50）</td></tr>
           <tr><td><code>is_verified</code></td><td>BOOLEAN</td><td>—</td><td>HRBP是否人工确认</td></tr>
           <tr><td><code>batch_id</code></td><td>VARCHAR(50)</td><td>✅</td><td>写入批次ID</td></tr>
-          <tr><td><code>updated_at</code></td><td>TIMESTAMPTZ</td><td>—</td><td>更新时间</td></tr>
+          <tr><td><code>updated_at</code></td><td>TIMESTAMP</td><td>—</td><td>更新时间</td></tr>
         </tbody>
       </table>
     </div>
@@ -2257,7 +2257,7 @@ CREATE TABLE batch_upload_log (
     error_message TEXT,
     employee_count INT DEFAULT 0,
     tag_count INT DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX idx_batch_log_status ON batch_upload_log (status);
 CREATE INDEX idx_batch_log_batch ON batch_upload_log (batch_id);
@@ -2299,8 +2299,8 @@ CREATE TABLE employee_capability_tags (
     evidence TEXT,
     source_materials JSONB,
     batch_id VARCHAR(50) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 CREATE UNIQUE INDEX idx_emp_tags_uk ON employee_capability_tags (employee_id, assessment_cycle, dimension, tag_name);
 CREATE INDEX idx_emp_tags_pf_grade ON employee_capability_tags (position_family, target_grade, assessment_cycle);
@@ -2321,7 +2321,7 @@ CREATE TABLE gold_tags (
     is_core BOOLEAN DEFAULT FALSE,
     is_verified BOOLEAN DEFAULT FALSE,
     batch_id VARCHAR(50) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 CREATE UNIQUE INDEX idx_gold_uk ON gold_tags (position_family, grade, dimension, tag_name);
 CREATE INDEX idx_gold_query ON gold_tags (position_family, grade, is_core DESC, distinction_coef DESC);
