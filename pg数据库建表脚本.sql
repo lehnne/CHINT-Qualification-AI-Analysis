@@ -8,6 +8,44 @@
 -- 扩展：向量相似度搜索（用于后续标签匹配，非必须）
 -- CREATE EXTENSION IF NOT EXISTS vector;
 
+-- ============================================================
+-- 表0：batch_upload_log（批次原始数据归档）
+-- 用途：存储每次写入的完整原始 JSON 请求体，用于审计、追溯和重跑
+--       MCP 写入时，先存原始 JSON，再解析转存到具体业务表
+-- 核心查询：按 batch_id 检索某次写入的原始数据
+-- ============================================================
+CREATE TABLE batch_upload_log (
+    id                  BIGSERIAL       PRIMARY KEY,
+    batch_id            VARCHAR(50)     NOT NULL,       -- 批次ID，如 BATCH_20250714_0001
+    assessment_cycle    VARCHAR(20)     NOT NULL,       -- 评审周期，如 2025-H1
+    mode                VARCHAR(20)     NOT NULL,       -- 写入模式：initial / incremental
+    raw_json            TEXT            NOT NULL,       -- 完整的原始 JSON 请求体字符串（未转义前的原始内容）
+    status              VARCHAR(20)     NOT NULL        DEFAULT 'pending',  -- 处理状态：pending / processing / success / failed
+    error_message       TEXT,                           -- 处理失败时的错误信息
+    employee_count      INT             DEFAULT 0,      -- 本批次包含的员工数
+    tag_count           INT             DEFAULT 0,      -- 本批次生成的标签总数
+    created_at          TIMESTAMPTZ     DEFAULT NOW()   -- 写入时间
+
+    -- 没有唯一约束，同一个 batch_id 可能重跑多次，每次都会有一条记录
+);
+
+CREATE INDEX idx_batch_log_batch   ON batch_upload_log (batch_id);
+CREATE INDEX idx_batch_log_cycle   ON batch_upload_log (assessment_cycle DESC);
+CREATE INDEX idx_batch_log_status  ON batch_upload_log (status);
+
+COMMENT ON TABLE  batch_upload_log           IS '批次原始数据归档表：存储每次写入的完整原始JSON请求体，用于审计、追溯和重跑';
+COMMENT ON COLUMN batch_upload_log.id                IS '自增主键，无业务含义';
+COMMENT ON COLUMN batch_upload_log.batch_id          IS '批次ID，格式BATCH_YYYYMMDD_HHMM，用于标识一次写入操作';
+COMMENT ON COLUMN batch_upload_log.assessment_cycle  IS '评审周期，如2025-H1，冗余存储方便按周期检索';
+COMMENT ON COLUMN batch_upload_log.mode              IS '写入模式：initial（首次全量）/ incremental（增量按人覆盖）';
+COMMENT ON COLUMN batch_upload_log.raw_json           IS '完整的原始JSON请求体，MCP传入的request_body字符串，含所有员工标签数据';
+COMMENT ON COLUMN batch_upload_log.status            IS '处理状态：pending=待处理/processing=处理中/success=成功/failed=失败';
+COMMENT ON COLUMN batch_upload_log.error_message      IS '处理失败时的错误信息，用于排查问题';
+COMMENT ON COLUMN batch_upload_log.employee_count     IS '本批次包含的员工人数，解析后回填';
+COMMENT ON COLUMN batch_upload_log.tag_count          IS '本批次生成的标签总数，解析后回填';
+COMMENT ON COLUMN batch_upload_log.created_at         IS '记录创建时间，即中台收到请求的时间';
+
+
 -- 功能索引（用于写入函数中的 DELETE 操作，按 employee_id + assessment_cycle 快速定位）
 CREATE INDEX IF NOT EXISTS idx_emp_tags_delete
     ON employee_capability_tags (employee_id, assessment_cycle);

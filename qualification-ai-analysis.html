@@ -1216,6 +1216,12 @@ pipeline:
     <h3>10.2 数据库设计</h3>
     <p>选<strong>PostgreSQL</strong>作为独立数据库——不依赖任职资格平台、不依赖飞书多维表格。原因很简单：聚合查询需要毫秒级响应，且未来可以接BI工具做可视化。</p>
 
+    <h4>10.2.0 表0：batch_upload_log（批次原始数据归档）</h4>
+    <p><strong>用途：</strong>存储每次写入的完整原始JSON请求体。MCP写入时，先存原始JSON到此表，再解析转存到具体业务表。用于审计追溯和失败重跑。</p>
+    <p>字段：id(BIGSERIAL PK), batch_id(VARCHAR(50) NOT NULL), assessment_cycle(VARCHAR(20) NOT NULL), mode(VARCHAR(20) NOT NULL), raw_json(TEXT NOT NULL), status(VARCHAR(20) NOT NULL DEFAULT 'pending'), error_message(TEXT), employee_count(INT DEFAULT 0), tag_count(INT DEFAULT 0), created_at(TIMESTAMPTZ DEFAULT NOW())</p>
+    <p>索引：idx_batch_log_batch(batch_id), idx_batch_log_cycle(assessment_cycle DESC), idx_batch_log_status(status)</p>
+    <p>status取值：pending→processing→success/failed</p>
+
     <h4>10.2.1 表1：employee_capability_tags（个人能力标签）</h4>
     <p>这是最核心的表。<strong>每行 = 一个人在某次评审中，某个维度下的一个标签。</strong>比如张三在"技术专长"维度下有"架构设计"和"高并发优化"两个标签，就占两行。如果张三下次评审又有新标签，会新增行（覆盖同周期）。</p>
     <div class="tw">
@@ -1319,6 +1325,13 @@ pipeline:
 
     <h4>10.2.5 表关系一览</h4>
     <div class="schema">
+      ┌─────────────────────────────────────────────────────────────┐
+      │  batch_upload_log（归档表 - 审计追溯）                        │
+      │  存储每次MCP写入的完整原始JSON请求体                          │
+      │  PK: id  |  IDX: batch_id                                    │
+      └──────────────────────┬──────────────────────────────────────┘
+                             │ batch_id → 关联业务表追溯
+                             ▼
       ┌─────────────────────────────────────────────────────────────┐
       │  dimension_schema（配置表 - 元数据）                         │
       │  定义每个岗位序列有哪些维度                                    │
@@ -2241,6 +2254,22 @@ DROP TABLE IF EXISTS _failed_employees;</pre>
     <pre><span class="tag">sql</span>-- ============================================================
 -- AI 分析系统 PostgreSQL 完整建表 DDL
 -- ============================================================
+
+CREATE TABLE batch_upload_log (
+    id BIGSERIAL PRIMARY KEY,
+    batch_id VARCHAR(50) NOT NULL,
+    assessment_cycle VARCHAR(20) NOT NULL,
+    mode VARCHAR(20) NOT NULL,
+    raw_json TEXT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    error_message TEXT,
+    employee_count INT DEFAULT 0,
+    tag_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX idx_batch_log_batch ON batch_upload_log (batch_id);
+CREATE INDEX idx_batch_log_cycle ON batch_upload_log (assessment_cycle DESC);
+CREATE INDEX idx_batch_log_status ON batch_upload_log (status);
 
 CREATE TABLE employee_capability_tags (
     id BIGSERIAL PRIMARY KEY,
